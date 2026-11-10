@@ -1,0 +1,6 @@
+{
+  "name": "Wicket Dynasty",
+  "description": "Premium 2D Cricket Franchise Management Simulator for Android - Manage, strategize, auction, train, and dominate the cricket leagues.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

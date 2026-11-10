@@ -1,0 +1,369 @@
+{
+  "game": "WICKET DYNASTY",
+  "version": "1.0.0",
+  "seasonReference": "IPL 2026",
+  "status": "BLUEPRINT_READY_PLAYER_ROSTER_REQUIRES_FINAL_AUDIT",
+  "rosterPlan": {
+    "totalPlayers": 320,
+    "fictionalPlayersOnlyIfVerifiedRealPoolIsInsufficient": true,
+    "tiers": [
+      {
+        "tier": "PLATINUM",
+        "count": 13,
+        "ovrMin": 90,
+        "ovrMax": 99,
+        "basePriceCr": [
+          2.5,
+          3.0
+        ]
+      },
+      {
+        "tier": "DIAMOND",
+        "count": 27,
+        "ovrMin": 85,
+        "ovrMax": 89,
+        "basePriceCr": [
+          1.5,
+          2.0
+        ]
+      },
+      {
+        "tier": "GOLD",
+        "count": 80,
+        "ovrMin": 80,
+        "ovrMax": 84,
+        "basePriceCr": [
+          0.75,
+          1.5
+        ]
+      },
+      {
+        "tier": "SILVER",
+        "count": 100,
+        "ovrMin": 70,
+        "ovrMax": 79,
+        "basePriceCr": [
+          0.3,
+          0.75
+        ]
+      },
+      {
+        "tier": "BRONZE",
+        "count": 100,
+        "ovrMin": 60,
+        "ovrMax": 69,
+        "basePriceCr": [
+          0.2,
+          0.3
+        ]
+      }
+    ]
+  },
+  "overallRatingRules": {
+    "PLATINUM": "90-99",
+    "DIAMOND": "85-89",
+    "GOLD": "80-84",
+    "SILVER": "70-79",
+    "BRONZE": "60-69",
+    "rule": "Every player's OVR must fall inside their assigned tier range. Do not use the same OVR range across tiers."
+  },
+  "categoryProfiles": {
+    "BATTER": {
+      "batting": [
+        85,
+        99
+      ],
+      "bowling": [
+        5,
+        35
+      ],
+      "fielding": [
+        65,
+        95
+      ],
+      "power": [
+        75,
+        99
+      ],
+      "timing": [
+        80,
+        99
+      ],
+      "technique": [
+        75,
+        99
+      ],
+      "keeping": [
+        1,
+        15
+      ],
+      "stamina": [
+        65,
+        95
+      ]
+    },
+    "BOWLER_FAST": {
+      "batting": [
+        10,
+        45
+      ],
+      "bowling": [
+        82,
+        99
+      ],
+      "fielding": [
+        60,
+        90
+      ],
+      "pace": [
+        80,
+        99
+      ],
+      "swing": [
+        65,
+        99
+      ],
+      "accuracy": [
+        75,
+        99
+      ],
+      "deathBowling": [
+        65,
+        99
+      ],
+      "keeping": [
+        1,
+        10
+      ],
+      "stamina": [
+        75,
+        99
+      ]
+    },
+    "BOWLER_SPIN": {
+      "batting": [
+        10,
+        50
+      ],
+      "bowling": [
+        82,
+        99
+      ],
+      "fielding": [
+        65,
+        92
+      ],
+      "spin": [
+        80,
+        99
+      ],
+      "turn": [
+        70,
+        99
+      ],
+      "flight": [
+        65,
+        95
+      ],
+      "control": [
+        75,
+        99
+      ],
+      "keeping": [
+        1,
+        10
+      ],
+      "stamina": [
+        70,
+        95
+      ]
+    },
+    "ALL_ROUNDER": {
+      "batting": [
+        65,
+        88
+      ],
+      "bowling": [
+        65,
+        90
+      ],
+      "fielding": [
+        65,
+        95
+      ],
+      "power": [
+        60,
+        90
+      ],
+      "technique": [
+        60,
+        90
+      ],
+      "stamina": [
+        75,
+        99
+      ],
+      "fitness": [
+        75,
+        99
+      ]
+    },
+    "WICKETKEEPER_BATTER": {
+      "batting": [
+        75,
+        96
+      ],
+      "bowling": [
+        1,
+        25
+      ],
+      "fielding": [
+        75,
+        98
+      ],
+      "keeping": [
+        75,
+        99
+      ],
+      "reflexes": [
+        75,
+        99
+      ],
+      "stumping": [
+        70,
+        99
+      ],
+      "stamina": [
+        70,
+        95
+      ]
+    }
+  },
+  "categoryDistribution": {
+    "PLATINUM": {
+      "BATTER": 3,
+      "WICKETKEEPER_BATTER": 2,
+      "ALL_ROUNDER": 4,
+      "BOWLER_FAST": 2,
+      "BOWLER_SPIN": 2
+    },
+    "DIAMOND": {
+      "BATTER": 8,
+      "WICKETKEEPER_BATTER": 5,
+      "ALL_ROUNDER": 6,
+      "BOWLER_FAST": 5,
+      "BOWLER_SPIN": 3
+    },
+    "GOLD": {
+      "BATTER": 20,
+      "WICKETKEEPER_BATTER": 10,
+      "ALL_ROUNDER": 20,
+      "BOWLER_FAST": 18,
+      "BOWLER_SPIN": 12
+    },
+    "SILVER": {
+      "BATTER": 25,
+      "WICKETKEEPER_BATTER": 15,
+      "ALL_ROUNDER": 25,
+      "BOWLER_FAST": 20,
+      "BOWLER_SPIN": 15
+    },
+    "BRONZE": {
+      "BATTER": 25,
+      "WICKETKEEPER_BATTER": 15,
+      "ALL_ROUNDER": 25,
+      "BOWLER_FAST": 20,
+      "BOWLER_SPIN": 15
+    }
+  },
+  "playerSchema": {
+    "id": "PLY001",
+    "name": "Player Name",
+    "country": "India",
+    "age": null,
+    "isFictional": false,
+    "sourceStatus": "VERIFIED|UNVERIFIED|FICTIONAL",
+    "ipl2026Team": "RCB|CSK|MI|KKR|RR|SRH|DC|PBKS|GT|LSG|UNSIGNED",
+    "ipl2026Status": "RETAINED|AUCTION_BOUGHT|UNSOLD|NOT_IN_AUCTION",
+    "tier": "PLATINUM|DIAMOND|GOLD|SILVER|BRONZE",
+    "category": "BATTER|BOWLER_FAST|BOWLER_SPIN|ALL_ROUNDER|WICKETKEEPER_BATTER",
+    "battingHand": "RIGHT|LEFT",
+    "bowlingStyle": "RIGHT_ARM_FAST|LEFT_ARM_FAST|MEDIUM|OFF_SPIN|LEG_SPIN|LEFT_ARM_ORTHODOX|NONE",
+    "overallRating": 90,
+    "attributes": {
+      "batting": 90,
+      "bowling": 20,
+      "fielding": 80,
+      "power": 85,
+      "timing": 90,
+      "technique": 88,
+      "againstPace": 85,
+      "againstSpin": 87,
+      "finishing": 82,
+      "pace": 10,
+      "swing": 10,
+      "seam": 10,
+      "yorker": 10,
+      "bouncer": 10,
+      "slowerBall": 10,
+      "deathBowling": 10,
+      "spin": 10,
+      "turn": 10,
+      "flight": 10,
+      "control": 10,
+      "catching": 80,
+      "throwing": 80,
+      "agility": 80,
+      "keeping": 5,
+      "reflexes": 5,
+      "stumping": 5,
+      "stamina": 85,
+      "fitness": 85,
+      "temperament": 85,
+      "consistency": 85,
+      "potential": 90
+    },
+    "careerStats": {
+      "iplMatches": null,
+      "iplRuns": null,
+      "iplAverage": null,
+      "iplStrikeRate": null,
+      "iplWickets": null,
+      "iplBowlingAverage": null,
+      "iplEconomy": null,
+      "iplCatches": null,
+      "iplStumpings": null,
+      "sourceStatus": "UNVERIFIED"
+    },
+    "auction": {
+      "basePriceCr": 1.0,
+      "lotNumber": 1,
+      "auctionSet": "DIAMOND_BATTER"
+    },
+    "development": {
+      "growthRate": 1.0,
+      "retirementAge": 40
+    }
+  },
+  "auctionRules": {
+    "currency": "INR",
+    "teamPurseCr": 120,
+    "maxSquadSize": 25,
+    "maxOverseasPlayers": 8,
+    "oneLotPerPlayer": true,
+    "playerCanBePurchasedOnlyOnce": true
+  },
+  "players": [],
+  "auctionLots": [],
+  "validationRules": [
+    "Exactly 320 unique player IDs",
+    "No duplicate player identities",
+    "Every player has exactly one auction lot",
+    "OVR must match tier range",
+    "Specialist batter has strong batting and weak bowling",
+    "Specialist bowler has strong bowling and weak batting",
+    "All-rounder has useful batting and bowling",
+    "Wicketkeeper has separate keeping/reflex/stumping attributes",
+    "Do not invent real-player career statistics; unknown values must be null"
+  ]
+}
