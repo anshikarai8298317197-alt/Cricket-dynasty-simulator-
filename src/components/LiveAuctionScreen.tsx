@@ -451,7 +451,7 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
   const country = getCountryBadge(p.nationality, p.isOverseas);
   const initials = getPlayerInitials(p.name);
   const jerseyNumber = ((activeLot.lotNumber * 7) % 89 + 10);
-  const tierDisplayName = p.ratingTier === 'Diamond' ? 'PLATINUM' : p.ratingTier.toUpperCase();
+  const tierDisplayName = p.ratingTier.toUpperCase();
   const prevFranchise = p.originalFranchiseId || 'GT';
 
   // Next bid calculation
@@ -593,7 +593,7 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
 
           {/* Subtitle: Role · age · Bowling Arm / Batting Hand */}
           <p className="text-[11px] font-medium text-slate-400 text-center mt-0.5">
-            {p.primaryRole} · age {p.age} ·{' '}
+            {p.primaryRole}{p.age ? ` · age ${p.age}` : ''} ·{' '}
             {isBowler
               ? p.bowlingArm?.includes('Left') ? 'LAF' : 'RAF'
               : p.battingHand === 'Left Hand' ? 'LHB' : 'RHB'}
@@ -1135,23 +1135,23 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
                   </div>
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Runs</span>
-                    <span className="font-black text-amber-400 text-xs">{p.careerStats.runs}</span>
+                    <span className="font-black text-amber-400 text-xs">{p.careerStats.runs ?? '—'}</span>
                   </div>
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Strike Rate</span>
-                    <span className="font-black text-emerald-400 text-xs">{p.careerStats.strikeRate.toFixed(1)}</span>
+                    <span className="font-black text-emerald-400 text-xs">{p.careerStats.strikeRate !== null ? p.careerStats.strikeRate.toFixed(1) : '—'}</span>
                   </div>
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Wickets</span>
-                    <span className="font-black text-blue-400 text-xs">{p.careerStats.wickets}</span>
+                    <span className="font-black text-blue-400 text-xs">{p.careerStats.wickets ?? '—'}</span>
                   </div>
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Economy</span>
-                    <span className="font-black text-cyan-400 text-xs">{p.careerStats.economy.toFixed(1)}</span>
+                    <span className="font-black text-cyan-400 text-xs">{p.careerStats.economy !== null ? p.careerStats.economy.toFixed(1) : '—'}</span>
                   </div>
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Best Bowl</span>
-                    <span className="font-black text-slate-200 text-xs">{p.careerStats.bestBowling}</span>
+                    <span className="font-black text-slate-200 text-xs">{p.careerStats.bestBowling || '—'}</span>
                   </div>
                 </div>
               </div>

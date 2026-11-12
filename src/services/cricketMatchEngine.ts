@@ -631,7 +631,7 @@ export class CricketMatchEngine {
           let fielderStartY = 60;
 
           if (runs === 6) {
-            targetX = striker.battingHand.includes('Left') ? 18 : 82;
+            targetX = (striker.battingHand || 'Right Hand').includes('Left') ? 18 : 82;
             targetY = 12;
             distancePct = 100;
             isLofted = true;
@@ -1592,7 +1592,7 @@ export class LiveMatchSession {
     let actionType: 'CATCH' | 'GROUND_PICKUP' | 'BOUNDARY_FOUR' | 'BOUNDARY_SIX' | 'DIVING_SAVE' = 'GROUND_PICKUP';
 
     if (runs === 6) {
-      targetX = striker.battingHand.includes('Left') ? 20 : 80;
+      targetX = (striker.battingHand || 'Right Hand').includes('Left') ? 20 : 80;
       targetY = 12;
       distancePct = 100;
       isLofted = true;

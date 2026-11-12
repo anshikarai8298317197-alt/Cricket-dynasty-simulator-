@@ -27,6 +27,11 @@ export type AuctionSetCategory =
   | 'Left-arm Orthodox Spinners'
   | 'Wrist Spinners'
   | 'Uncapped Spin Prospects'
+  | 'Platinum Marquee Pool'
+  | 'BAT'
+  | 'BOWLER'
+  | 'ALL_ROUNDER'
+  | 'WICKETKEEPER'
   | 'Accelerated Unsold Pool';
 
 export type LotStatus = 'PENDING' | 'ACTIVE' | 'SOLD' | 'UNSOLD';

@@ -105,9 +105,9 @@ export class TrainingEngine {
       notes = 'Player is suffering from acute exhaustion (>85 fatigue). Negligible skill absorption.';
     } else {
       // Calculate growth chance
-      // Factors: age (younger = better), potential headroom, coach bonus, intensity
       const potentialHeadroom = Math.max(0, player.potentialRating - player.overallRating);
-      const ageFactor = player.age <= 22 ? 1.5 : player.age <= 27 ? 1.1 : player.age <= 32 ? 0.7 : 0.3;
+      const pAge = player.age ?? 25;
+      const ageFactor = pAge <= 22 ? 1.5 : pAge <= 27 ? 1.1 : pAge <= 32 ? 0.7 : 0.3;
       const intensityFactor = intensity === 'Intensive' ? 1.4 : intensity === 'Normal' ? 1.0 : 0.6;
       const coachFactor = 1 + (coach.qualityRating - 70) * 0.01;
 

@@ -32,6 +32,9 @@ import {
   Check,
   X,
   TrendingUp,
+  Lock,
+  Medal,
+  Sparkles,
 } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { FRANCHISES } from '../data/franchises';
@@ -42,6 +45,7 @@ import { Player } from '../types/player';
 import { TournamentEngine } from '../services/tournamentEngine';
 import { SquadValidationEngine } from '../services/squadValidationEngine';
 import { InjuryEngine } from '../services/injuryEngine';
+import { evaluateCareerAchievements } from '../services/careerAchievements';
 
 interface CareerOverviewScreenProps {
   career: CareerSave;
@@ -118,6 +122,15 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
       .map(id => squadPlayers.find(p => p.id === id))
       .filter(Boolean) as Player[];
   }, [career.playingXiIds, squadPlayers]);
+
+  // Career Achievements evaluation
+  const achievements = useMemo(() => {
+    return evaluateCareerAchievements(career, squadPlayers);
+  }, [career, squadPlayers]);
+
+  const unlockedAchievementsCount = useMemo(() => {
+    return achievements.filter(a => a.isUnlocked).length;
+  }, [achievements]);
 
   // Next upcoming fixture for user's franchise
   const upcomingFixture = career.tournament?.fixtures?.find(
@@ -670,6 +683,30 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
                 <h4 className="text-xs font-black text-white group-hover:text-emerald-400 transition-colors">Club Headquarters</h4>
                 <p className="text-[10px] text-slate-400 mt-0.5">Stadium, Academy & HQ</p>
               </button>
+
+              {/* Career Achievements Quick Access Button */}
+              <button
+                onClick={() => setActiveTab('PROFILE')}
+                className="col-span-2 p-3 rounded-2xl bg-gradient-to-r from-[#121E36] via-[#162747] to-[#121E36] border border-amber-500/30 hover:border-amber-400/60 flex items-center justify-between transition-all group cursor-pointer shadow-md"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300">
+                    <Trophy className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center space-x-1.5">
+                      <h4 className="text-xs font-black text-white group-hover:text-amber-300 transition-colors">
+                        Career Achievements
+                      </h4>
+                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                        {unlockedAchievementsCount}/{achievements.length} Unlocked
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400">Milestone badges: 10 Wins, Trophy & Squad Rating</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-amber-400 transition-all" />
+              </button>
             </div>
           </div>
         )}
@@ -914,6 +951,101 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
               <div className="p-3 rounded-xl bg-[#121E36] border border-slate-800">
                 <span className="text-[10px] text-slate-400 uppercase font-bold">Trophies</span>
                 <h4 className="text-lg font-black text-amber-400 font-mono mt-0.5">{career.statsSummary?.trophies || 0}</h4>
+              </div>
+            </div>
+
+            {/* Career Achievements & Badges System */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400">
+                    <Trophy className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-white">Career Achievements</h3>
+                    <p className="text-[10px] text-slate-400">Unlock visual badges & milestones</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-black px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  {unlockedAchievementsCount} / {achievements.length} Unlocked
+                </span>
+              </div>
+
+              {/* Badges Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {achievements.map((ach) => {
+                  const percent = Math.min(100, Math.round((ach.currentValue / ach.targetValue) * 100));
+
+                  return (
+                    <div
+                      key={ach.id}
+                      className={`p-3 rounded-2xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+                        ach.isUnlocked
+                          ? 'bg-[#121E36] border-amber-500/40 shadow-lg shadow-amber-950/20'
+                          : 'bg-[#0B1324]/80 border-slate-800/80 opacity-80'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center space-x-2.5">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg border shadow-sm ${
+                              ach.isUnlocked
+                                ? 'bg-gradient-to-br from-amber-400/20 to-yellow-600/20 border-amber-400/60 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+                                : 'bg-slate-900 border-slate-700/60 text-slate-600 grayscale'
+                            }`}
+                          >
+                            <span>{ach.icon}</span>
+                          </div>
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <h4 className={`text-xs font-black ${ach.isUnlocked ? 'text-white' : 'text-slate-300'}`}>
+                                {ach.title}
+                              </h4>
+                            </div>
+                            <p className="text-[10px] text-slate-400 leading-tight mt-0.5 line-clamp-2">
+                              {ach.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status Chip */}
+                        {ach.isUnlocked ? (
+                          <span className="shrink-0 text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center gap-1">
+                            <Check className="w-3 h-3 stroke-[3]" />
+                            <span>Done</span>
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-[9px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>Locked</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Progress Bar & Details */}
+                      <div className="space-y-1 mt-1 pt-1.5 border-t border-slate-800/80">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-[9px] font-bold tracking-wider uppercase text-slate-400">
+                            {ach.tier} TIER
+                          </span>
+                          <span className={ach.isUnlocked ? 'text-amber-400 font-bold' : 'text-slate-400'}>
+                            {ach.unlockedLabel}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              ach.isUnlocked
+                                ? 'bg-gradient-to-r from-amber-400 to-yellow-300'
+                                : 'bg-slate-700'
+                            }`}
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

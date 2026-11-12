@@ -24,6 +24,7 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ player, 
 
   // Tier color styling
   const tierColor = {
+    Platinum: 'text-cyan-400 border-cyan-400 bg-cyan-400/10',
     Diamond: 'text-amber-400 border-amber-400 bg-amber-400/10',
     Gold: 'text-yellow-300 border-yellow-300 bg-yellow-300/10',
     Silver: 'text-slate-200 border-slate-300 bg-slate-300/10',
@@ -65,7 +66,7 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ player, 
                 <h2 className="text-lg font-bold text-white tracking-tight">{player.name}</h2>
               </div>
               <p className="text-xs text-slate-300 font-medium">
-                {player.primaryRole} · {player.age} yrs · {player.battingHand}
+                {player.primaryRole}{player.age ? ` · ${player.age} yrs` : ''} · {player.battingHand || 'Right Hand'}
               </p>
               
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -323,39 +324,39 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ player, 
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Matches</span>
-                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.matches}</span>
+                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.matches ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Total Runs</span>
-                    <span className="font-mono text-sm font-bold text-amber-400">{player.careerStats.runs}</span>
+                    <span className="font-mono text-sm font-bold text-amber-400">{player.careerStats.runs ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Highest Score</span>
-                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.highestScore}</span>
+                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.highestScore ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Batting Avg</span>
-                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.battingAverage}</span>
+                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.battingAverage ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Strike Rate</span>
-                    <span className="font-mono text-sm font-bold text-emerald-400">{player.careerStats.strikeRate}</span>
+                    <span className="font-mono text-sm font-bold text-emerald-400">{player.careerStats.strikeRate ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">50s / 100s</span>
-                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.fifties} / {player.careerStats.hundreds}</span>
+                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.fifties ?? '—'} / {player.careerStats.hundreds ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Wickets</span>
-                    <span className="font-mono text-sm font-bold text-blue-400">{player.careerStats.wickets}</span>
+                    <span className="font-mono text-sm font-bold text-blue-400">{player.careerStats.wickets ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Best Bowling</span>
-                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.bestBowling}</span>
+                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.bestBowling ?? '—'}</span>
                   </div>
                   <div className="p-2 rounded bg-[#0C1425]">
                     <span className="text-slate-400 text-[10px] block">Economy</span>
-                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.economy}</span>
+                    <span className="font-mono text-sm font-bold text-white">{player.careerStats.economy ?? '—'}</span>
                   </div>
                 </div>
               </div>

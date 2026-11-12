@@ -2,7 +2,7 @@
  * WICKET DYNASTY - Home / Dashboard Screen (SCR_01 / SCR_02)
  * Master Reference Design Replica: 3D Game Art, 3D Skeuomorphic Buttons, Stadium Backdrop
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Play,
   Plus,
@@ -18,9 +18,21 @@ import {
   ChevronRight,
   Crown,
   Sparkles,
+  RefreshCw,
+  Globe,
+  Radio,
 } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { FRANCHISES } from '../data/franchises';
+
+interface CricketNewsArticle {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  category: string;
+  timeAgo: string;
+}
 
 interface MainDashboardProps {
   activeCareer: CareerSave | null;
@@ -47,6 +59,45 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const [showEventsModal, setShowEventsModal] = useState(false);
   const [showNewsModal, setShowNewsModal] = useState(false);
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
+
+  // Search Grounded Cricket News State
+  const [newsArticles, setNewsArticles] = useState<CricketNewsArticle[]>([]);
+  const [isNewsLoading, setIsNewsLoading] = useState(false);
+  const [activeHeadlineIndex, setActiveHeadlineIndex] = useState(0);
+  const [isGrounded, setIsGrounded] = useState(false);
+
+  const fetchCricketNews = async () => {
+    setIsNewsLoading(true);
+    try {
+      const res = await fetch('/api/news/cricket-headlines');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.articles && data.articles.length > 0) {
+          setNewsArticles(data.articles);
+          setIsGrounded(Boolean(data.grounded));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load cricket news:', err);
+    } finally {
+      setIsNewsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCricketNews();
+  }, []);
+
+  // Auto-cycle top headline preview every 5 seconds
+  useEffect(() => {
+    if (newsArticles.length <= 1) return;
+    const timer = setInterval(() => {
+      setActiveHeadlineIndex(prev => (prev + 1) % newsArticles.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [newsArticles.length]);
+
+  const currentHeadline = newsArticles[activeHeadlineIndex] || newsArticles[0];
 
   const activeFranchise = activeCareer
     ? FRANCHISES.find(f => f.id === activeCareer.franchiseId) || FRANCHISES[0]
@@ -193,6 +244,56 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </div>
         </div>
 
+        {/* Real-World Grounded Cricket News Wire Section */}
+        <div className="max-w-sm mx-auto w-full mb-2">
+          <div
+            onClick={() => setShowNewsModal(true)}
+            className="p-2.5 rounded-2xl bg-[#091122]/95 border border-amber-500/30 hover:border-amber-400/60 shadow-lg cursor-pointer transition-all group backdrop-blur-md"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center space-x-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-wider text-amber-400 font-mono">
+                  LIVE CRICKET WIRE
+                </span>
+                {isGrounded && (
+                  <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                    Search Grounded
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center space-x-1 text-[9px] text-slate-400 group-hover:text-amber-300 transition-colors">
+                <span>All Headlines</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </div>
+
+            {isNewsLoading && newsArticles.length === 0 ? (
+              <div className="flex items-center space-x-2 py-1 text-slate-400 text-[11px]">
+                <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                <span>Pulling latest real-world cricket headlines...</span>
+              </div>
+            ) : currentHeadline ? (
+              <div className="text-left animate-in fade-in duration-300">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 uppercase">
+                    {currentHeadline.category}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-mono">
+                    {currentHeadline.source} · {currentHeadline.timeAgo}
+                  </span>
+                </div>
+                <h4 className="text-[11px] font-bold text-white line-clamp-1 group-hover:text-amber-200 transition-colors">
+                  {currentHeadline.title}
+                </h4>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
         {/* Bottom Game Navigation Tabs (Master Reference: Achievements / Events / News) */}
         <div className="bg-[#091122]/95 border-t border-slate-800/90 rounded-2xl px-2 py-1.5 flex items-center justify-around shadow-2xl backdrop-blur-md">
           <button
@@ -302,38 +403,101 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         </div>
       )}
 
-      {/* News Modal */}
+      {/* News Modal - Real-World Search Grounded */}
       {showNewsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm card-game-3d rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-700 pb-2">
-              <h3 className="text-sm font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                <Newspaper className="w-4 h-4" />
-                <span>Franchise Cricket News</span>
-              </h3>
-              <button onClick={() => setShowNewsModal(false)} className="text-xs text-slate-400 hover:text-white">
-                ✕
+          <div className="w-full max-w-sm card-game-3d rounded-2xl p-4 space-y-3 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-700/80 pb-2 shrink-0">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400">
+                  <Newspaper className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-amber-400 leading-tight">
+                    Cricket News Wire
+                  </h3>
+                  <div className="flex items-center space-x-1.5 text-[9px] text-slate-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                    <span>Real-world search grounded</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={fetchCricketNews}
+                  disabled={isNewsLoading}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors disabled:opacity-50"
+                  title="Refresh Headlines"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isNewsLoading ? 'animate-spin text-amber-400' : ''}`} />
+                </button>
+                <button
+                  onClick={() => setShowNewsModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 overflow-y-auto flex-1 pr-1">
+              {isNewsLoading && newsArticles.length === 0 ? (
+                <div className="py-8 flex flex-col items-center justify-center space-y-2 text-slate-400 text-xs">
+                  <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                  <p>Searching latest cricket headlines...</p>
+                </div>
+              ) : newsArticles.length > 0 ? (
+                newsArticles.map((article) => (
+                  <div
+                    key={article.id}
+                    className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-amber-500/40 transition-colors space-y-1.5 text-left"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                        {article.category || 'CRICKET WIRE'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {article.timeAgo || 'Recent'}
+                      </span>
+                    </div>
+
+                    <h4 className="text-xs font-bold text-white leading-snug">
+                      {article.title}
+                    </h4>
+
+                    <p className="text-[11px] text-slate-300 leading-relaxed font-normal">
+                      {article.summary}
+                    </p>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] text-slate-400">
+                      <span className="font-semibold text-slate-300">{article.source}</span>
+                      <span className="flex items-center space-x-1 text-slate-500">
+                        <Globe className="w-3 h-3" />
+                        <span>Verified</span>
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-6 text-center text-xs text-slate-400">
+                  No cricket headlines available right now. Tap refresh to fetch.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 shrink-0 flex items-center justify-between">
+              <span className="text-[9px] text-slate-500 flex items-center gap-1 font-mono">
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                <span>Search Grounding</span>
+              </span>
+              <button
+                onClick={() => setShowNewsModal(false)}
+                className="py-1.5 px-5 rounded-xl btn-game-gold text-xs font-bold"
+              >
+                Close
               </button>
             </div>
-            <div className="space-y-2 text-xs max-h-60 overflow-y-auto">
-              <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                <span className="text-[9px] text-amber-400 font-bold">CRICKET BOARD BULLETIN</span>
-                <h4 className="font-bold text-white mt-0.5">10-Team Double Round-Robin Approved</h4>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  All 10 franchises to compete in 18 league rounds with top 4 advancing to IPL-style playoffs.
-                </p>
-              </div>
-              <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                <span className="text-[9px] text-emerald-400 font-bold">SCOUTING ALERT</span>
-                <h4 className="font-bold text-white mt-0.5">Youth Academy Prospects Scouting Active</h4>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Tier-4 youth scouts deployed across 5 regional cricket zones for next generation talent.
-                </p>
-              </div>
-            </div>
-            <button onClick={() => setShowNewsModal(false)} className="w-full py-2 rounded-xl btn-game-gold text-xs">
-              Close
-            </button>
           </div>
         </div>
       )}

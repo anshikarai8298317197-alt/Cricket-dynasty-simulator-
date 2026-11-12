@@ -39,7 +39,12 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
         if (!matchesName && !matchesNat && !matchesFran) return false;
       }
 
-      // 2. Category
+      // 2. Category / Tier Quick Pill
+      if (selectedCategory === 'PLATINUM' && p.ratingTier !== 'Platinum') return false;
+      if (selectedCategory === 'DIAMOND' && p.ratingTier !== 'Diamond') return false;
+      if (selectedCategory === 'GOLD' && p.ratingTier !== 'Gold') return false;
+      if (selectedCategory === 'SILVER' && p.ratingTier !== 'Silver') return false;
+      if (selectedCategory === 'BRONZE' && p.ratingTier !== 'Bronze') return false;
       if (selectedCategory === 'IND_CAPPED' && (p.isOverseas || !p.isCapped)) return false;
       if (selectedCategory === 'IND_UNCAPPED' && (p.isOverseas || p.isCapped)) return false;
       if (selectedCategory === 'OVS_CAPPED' && (!p.isOverseas || !p.isCapped)) return false;
@@ -72,7 +77,7 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
     }).sort((a, b) => {
       if (sortBy === 'OVR_DESC') return b.overallRating - a.overallRating;
       if (sortBy === 'OVR_ASC') return a.overallRating - b.overallRating;
-      if (sortBy === 'AGE_ASC') return a.age - b.age;
+      if (sortBy === 'AGE_ASC') return (a.age ?? 99) - (b.age ?? 99);
       if (sortBy === 'POT_DESC') return b.potentialRating - a.potentialRating;
       return 0;
     });
@@ -106,10 +111,11 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
           {[
             { id: 'ALL', label: 'All (320)' },
-            { id: 'IND_CAPPED', label: 'Ind Capped (100)' },
-            { id: 'IND_UNCAPPED', label: 'Ind Uncapped (100)' },
-            { id: 'OVS_CAPPED', label: 'Ovs Capped (80)' },
-            { id: 'OVS_UNCAPPED', label: 'Ovs Uncapped (40)' },
+            { id: 'PLATINUM', label: 'Platinum (13)' },
+            { id: 'DIAMOND', label: 'Diamond (27)' },
+            { id: 'GOLD', label: 'Gold (80)' },
+            { id: 'SILVER', label: 'Silver (100)' },
+            { id: 'BRONZE', label: 'Bronze (100)' },
           ].map(cat => (
             <button
               key={cat.id}
@@ -175,10 +181,11 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
             className="bg-[#080E1A] border border-[#1E2D4A] rounded-lg px-2 py-1 text-slate-200 focus:outline-none focus:border-[#F59E0B]"
           >
             <option value="ALL">All Tiers</option>
-            <option value="Diamond">Diamond (90+)</option>
-            <option value="Gold">Gold (82-89)</option>
-            <option value="Silver">Silver (74-81)</option>
-            <option value="Bronze">Bronze (50-73)</option>
+            <option value="Platinum">Platinum (90-99)</option>
+            <option value="Diamond">Diamond (85-89)</option>
+            <option value="Gold">Gold (80-84)</option>
+            <option value="Silver">Silver (70-79)</option>
+            <option value="Bronze">Bronze (60-69)</option>
           </select>
 
           {/* Sort */}
@@ -218,6 +225,7 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
               : null;
 
             const tierBadge = {
+              Platinum: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/40',
               Diamond: 'bg-amber-400/10 text-amber-400 border-amber-400/40',
               Gold: 'bg-yellow-400/10 text-yellow-300 border-yellow-400/40',
               Silver: 'bg-slate-300/10 text-slate-300 border-slate-300/40',
@@ -250,7 +258,7 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-300 truncate">
-                      {player.primaryRole} · {player.age} yrs
+                      {player.primaryRole}{player.age ? ` · ${player.age} yrs` : ''}
                     </p>
                     <div className="flex items-center gap-1.5 mt-1">
                       {franchise ? (

@@ -98,6 +98,11 @@ export interface CareerSave {
 
 export interface DatabaseAuditReport {
   totalPlayers: number;
+  platinumCount?: number;
+  diamondCount?: number;
+  goldCount?: number;
+  silverCount?: number;
+  bronzeCount?: number;
   indianCapped: number;
   indianUncapped: number;
   overseasCapped: number;
@@ -110,5 +115,6 @@ export interface DatabaseAuditReport {
   franchiseDistribution: Record<string, number>;
   unassignedCount: number;
   verificationPassed: boolean;
+  checksResults?: Record<string, boolean>;
   errors: string[];
 }

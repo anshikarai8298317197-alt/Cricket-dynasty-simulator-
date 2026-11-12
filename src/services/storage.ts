@@ -51,6 +51,9 @@ export class StorageService {
       localStorage.setItem(`${STORAGE_KEY_PREFIX}${career.slotIndex}`, JSON.stringify(career));
       localStorage.setItem(ACTIVE_SLOT_KEY, String(career.slotIndex));
       DbPersistence.saveCareer(career).catch(() => {});
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('app:game-saved', { detail: { slotIndex: career.slotIndex, timestamp: Date.now() } }));
+      }
       return true;
     } catch (err) {
       console.error('Save failed:', err);

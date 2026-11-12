@@ -43,7 +43,7 @@ export interface BallEvent {
   strikerId: string;
   strikerName: string;
   strikerNumber?: number;
-  strikerHand?: string;
+  strikerHand?: string | null;
   strikerRuns: number; // Instantaneous runs of striker at this delivery
   strikerBalls: number; // Instantaneous balls of striker at this delivery
   strikerFours?: number;
@@ -52,7 +52,7 @@ export interface BallEvent {
   nonStrikerId: string;
   nonStrikerName: string;
   nonStrikerNumber?: number;
-  nonStrikerHand?: string;
+  nonStrikerHand?: string | null;
   nonStrikerRuns: number; // Instantaneous runs of non-striker at this delivery
   nonStrikerBalls: number;
   nonStrikerFours?: number;

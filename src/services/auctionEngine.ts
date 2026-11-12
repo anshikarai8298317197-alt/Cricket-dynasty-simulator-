@@ -4,6 +4,7 @@
  */
 import { Player, RatingTier } from '../types/player';
 import { FRANCHISES } from '../data/franchises';
+import { buildAuthoritativeAuctionSchedule } from '../data/players/masterDatabase';
 import {
   AuctionLot,
   AuctionSetCategory,
@@ -28,20 +29,22 @@ export class AuctionEngine {
    * Calculate maximum allowable bid ceiling for a cricketer to prevent infinite price inflation
    */
   static getMaxBidLimit(player: Player): number {
-    let tierCeiling = 25.0; // Diamond default
-    if (player.ratingTier === 'Diamond' || player.overallRating >= 88) {
-      tierCeiling = 25.0;
+    let tierCeiling = 25.0; // Default
+    if (player.ratingTier === 'Platinum' || player.overallRating >= 90) {
+      tierCeiling = 28.0;
+    } else if (player.ratingTier === 'Diamond' || player.overallRating >= 85) {
+      tierCeiling = 22.0;
     } else if (player.ratingTier === 'Gold' || player.overallRating >= 80) {
-      tierCeiling = 16.0;
-    } else if (player.ratingTier === 'Silver' || player.overallRating >= 72) {
-      tierCeiling = 8.0;
+      tierCeiling = 14.0;
+    } else if (player.ratingTier === 'Silver' || player.overallRating >= 70) {
+      tierCeiling = 7.0;
     } else {
-      tierCeiling = 4.0;
+      tierCeiling = 3.5;
     }
 
     // Multiply base price limit safeguard
     const baseMultiplierCap = Math.max(tierCeiling, Number((player.contract.baseAuctionPriceCr * 8).toFixed(2)));
-    return Math.min(25.0, baseMultiplierCap);
+    return Math.min(28.0, baseMultiplierCap);
   }
 
   /**
@@ -98,58 +101,15 @@ export class AuctionEngine {
 
   /**
    * Group and sequence all auction pool players into ordered auction sets
+   * Ordered by:
+   * 1. Platinum (mixed roles)
+   * 2. Diamond (BAT, BWL, AR, WK)
+   * 3. Gold (BAT, BWL, AR, WK)
+   * 4. Silver (BAT, BWL, AR, WK)
+   * 5. Bronze (BAT, BWL, AR, WK)
    */
   static generateAuctionLots(availablePlayers: Player[]): AuctionLot[] {
-    const setOrder: AuctionSetCategory[] = [
-      'Elite Top-order Batters',
-      'Express Fast Bowlers',
-      'Elite Wicketkeepers',
-      'Batting All-rounders',
-      'Spin All-rounders',
-      'Pace All-rounders',
-      'Death-over Specialists',
-      'Leg Spinners',
-      'Aggressive Openers',
-      'Fast Bowlers',
-      'Batting Wicketkeepers',
-      'Swing Specialists',
-      'Off Spinners',
-      'Wrist Spinners',
-      'Middle-order Batters',
-      'Finishers',
-      'Fast-Medium Bowlers',
-      'Left-arm Orthodox Spinners',
-      'Uncapped Batting Prospects',
-      'Uncapped Wicketkeepers',
-      'Uncapped Spin Prospects',
-    ];
-
-    const lots: AuctionLot[] = [];
-    let lotNumber = 1;
-
-    // Process set by set
-    for (const setCat of setOrder) {
-      const setPlayers = availablePlayers.filter(p => this.categorizePlayer(p) === setCat);
-
-      // Sort within set: Diamond first, then Gold, then Silver, then Bronze
-      setPlayers.sort((a, b) => b.overallRating - a.overallRating);
-
-      for (const player of setPlayers) {
-        lots.push({
-          lotNumber: lotNumber++,
-          player,
-          category: setCat,
-          tier: player.ratingTier,
-          basePriceCr: player.contract.baseAuctionPriceCr,
-          currentBidCr: player.contract.baseAuctionPriceCr,
-          currentHighestBidderId: null,
-          status: 'PENDING',
-          bidHistory: [],
-        });
-      }
-    }
-
-    return lots;
+    return buildAuthoritativeAuctionSchedule(availablePlayers);
   }
 
   /**
@@ -254,14 +214,16 @@ export class AuctionEngine {
 
       // 5. Ceiling Price for this player
       let maxValuation = lot.basePriceCr * 1.5;
-      if (lot.tier === 'Diamond') {
-        maxValuation = Math.max(12.0, (lot.player.overallRating - 85) * 2.2);
+      if (lot.tier === 'Platinum') {
+        maxValuation = Math.max(16.0, (lot.player.overallRating - 90) * 1.8 + 16.0);
+      } else if (lot.tier === 'Diamond') {
+        maxValuation = Math.max(10.0, (lot.player.overallRating - 85) * 1.8 + 8.0);
       } else if (lot.tier === 'Gold') {
-        maxValuation = Math.max(5.0, (lot.player.overallRating - 78) * 1.4);
+        maxValuation = Math.max(4.5, (lot.player.overallRating - 80) * 1.2 + 3.5);
       } else if (lot.tier === 'Silver') {
-        maxValuation = Math.max(2.0, (lot.player.overallRating - 70) * 0.8);
+        maxValuation = Math.max(1.8, (lot.player.overallRating - 70) * 0.5 + 1.2);
       } else {
-        maxValuation = Math.max(0.5, lot.basePriceCr * 1.2);
+        maxValuation = Math.max(0.4, lot.basePriceCr * 1.2);
       }
 
       // Adjust with franchise aggression and role need

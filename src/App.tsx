@@ -16,6 +16,7 @@ import { FranchiseRosterModal } from './components/FranchiseRosterModal';
 
 // Phase 02 Screens
 import { AuctionHubScreen } from './components/AuctionHubScreen';
+import { AuctionIntroScreen } from './components/AuctionIntroScreen';
 import { RetentionScreen } from './components/RetentionScreen';
 import { LiveAuctionScreen } from './components/LiveAuctionScreen';
 import { SquadManagementScreen } from './components/SquadManagementScreen';
@@ -56,6 +57,7 @@ type AppView =
   | 'CAREER_OVERVIEW'
   | 'PLAYER_DATABASE'
   | 'AUCTION_HUB'
+  | 'AUCTION_INTRO'
   | 'RETENTIONS'
   | 'LIVE_AUCTION'
   | 'SQUAD_MANAGEMENT'
@@ -94,6 +96,26 @@ export default function App() {
   // Live Match State
   const [activeMatchConfig, setActiveMatchConfig] = useState<MatchSimulationConfig | null>(null);
   const [activeMatchResult, setActiveMatchResult] = useState<MatchResultDetails | null>(null);
+
+  // Auto-Save Toast state
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    const handleSaveNotification = () => {
+      setSaveToastVisible(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        setSaveToastVisible(false);
+      }, 2000);
+    };
+
+    window.addEventListener('app:game-saved', handleSaveNotification);
+    return () => {
+      window.removeEventListener('app:game-saved', handleSaveNotification);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   // Boot: Load active career from storage
   useEffect(() => {
@@ -566,9 +588,18 @@ export default function App() {
           {currentView === 'AUCTION_HUB' && activeCareer && (
             <AuctionHubScreen
               career={activeCareer}
-              onStartAuction={() => setCurrentView('LIVE_AUCTION')}
+              onStartAuction={() => setCurrentView('AUCTION_INTRO')}
               onOpenRetentions={() => setCurrentView('RETENTIONS')}
               onBack={() => setCurrentView('CAREER_OVERVIEW')}
+            />
+          )}
+
+          {/* Phase 02: Auction Briefing & Set Introduction */}
+          {currentView === 'AUCTION_INTRO' && activeCareer && (
+            <AuctionIntroScreen
+              career={activeCareer}
+              onEnterAuction={() => setCurrentView('LIVE_AUCTION')}
+              onBack={() => setCurrentView('AUCTION_HUB')}
             />
           )}
 
@@ -586,7 +617,7 @@ export default function App() {
                   lastPlayedAt: Date.now(),
                 };
                 handleUpdateCareer(updated);
-                setCurrentView('AUCTION_HUB');
+                setCurrentView('AUCTION_INTRO');
               }}
               onBack={() => setCurrentView('AUCTION_HUB')}
             />
@@ -722,6 +753,16 @@ export default function App() {
           }}
           onClose={() => setMatchValidationError(null)}
         />
+
+        {/* Non-intrusive 'Game Saved' Auto-Save Toast */}
+        {saveToastVisible && (
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300">
+            <div className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-slate-900/95 border border-emerald-500/50 text-emerald-300 text-xs font-bold shadow-2xl shadow-black/80 backdrop-blur-md">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+              <span>Game Saved</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

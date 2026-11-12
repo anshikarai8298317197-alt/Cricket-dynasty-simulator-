@@ -45,7 +45,7 @@ export type BowlingSpeedClass =
   | 'Slow / Spin (80-105 km/h)'
   | 'Non-Bowler';
 
-export type RatingTier = 'Diamond' | 'Gold' | 'Silver' | 'Bronze';
+export type RatingTier = 'Platinum' | 'Diamond' | 'Gold' | 'Silver' | 'Bronze';
 
 export interface BattingAttributes {
   timing: number;
@@ -96,21 +96,21 @@ export interface FitnessAttributes {
 }
 
 export interface CareerStats {
-  matches: number;
-  runs: number;
-  highestScore: number;
-  battingAverage: number;
-  strikeRate: number;
-  fifties: number;
-  hundreds: number;
-  fours: number;
-  sixes: number;
-  wickets: number;
-  bestBowling: string;
-  bowlingAverage: number;
-  economy: number;
-  catches: number;
-  stumpings: number;
+  matches: number | null;
+  runs: number | null;
+  highestScore?: number | null;
+  battingAverage?: number | null;
+  strikeRate: number | null;
+  fifties?: number | null;
+  hundreds?: number | null;
+  fours?: number | null;
+  sixes?: number | null;
+  wickets: number | null;
+  bestBowling?: string | null;
+  bowlingAverage?: number | null;
+  economy: number | null;
+  catches?: number | null;
+  stumpings?: number | null;
 }
 
 export interface PlayerContract {
@@ -122,29 +122,37 @@ export interface PlayerContract {
 }
 
 export interface Player {
-  id: string; // e.g., "REAL_0001" or "FICTIONAL_0001"
+  id: string; // e.g., "WD001", "REAL_0001" or "FICTIONAL_0001"
   name: string;
   shortName: string;
-  age: number;
+  age: number | null;
+  country?: string | null;
   nationality: string;
   isOverseas: boolean;
   isReal: boolean;
   isCapped: boolean;
+  isFictional?: boolean;
   originalFranchiseId: string | null; // e.g. "RCB", "MI", "CSK" or null
+  franchise2026?: string | null;
+  rosterStatus?: string;
+  sourceStatus?: string;
   verificationStatus: 'Official 2026 IPL Pool' | 'Verified Domestic / Global' | 'Fictional Original';
   
   // Cricket profile
+  role?: string;
   primaryRole: PlayerRole;
   secondaryRole?: string;
-  battingHand: BattingHand;
-  bowlingType: BowlingType;
-  bowlingArm: BowlingArm;
-  bowlingSpeedClass: BowlingSpeedClass;
+  battingHand: BattingHand | null;
+  bowlingStyle?: string | null;
+  bowlingType: BowlingType | null;
+  bowlingArm: BowlingArm | null;
+  bowlingSpeedClass: BowlingSpeedClass | null;
   isWicketkeeper: boolean;
   
   // Ratings
   overallRating: number;
   potentialRating: number;
+  tier?: 'PLATINUM' | 'DIAMOND' | 'GOLD' | 'SILVER' | 'BRONZE';
   ratingTier: RatingTier;
   currentForm: number; // 0-100
   fitness: number; // 0-100%
@@ -157,9 +165,11 @@ export interface Player {
   fielding: FieldingAttributes;
   mental: MentalAttributes;
   fitnessAttributes: FitnessAttributes;
+  attributes?: Record<string, number>;
   
   // Career & Financial
   contract: PlayerContract;
   careerStats: CareerStats;
   isRetired: boolean;
+  auctionLotId?: string;
 }
