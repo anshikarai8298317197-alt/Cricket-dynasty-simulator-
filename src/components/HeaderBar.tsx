@@ -65,17 +65,24 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
       <div className="flex items-center gap-1.5">
         {saveStatus !== 'IDLE' && (
-          <span
-            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border transition-all ${
-              saveStatus === 'SAVED'
-                ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400'
-                : saveStatus === 'SAVING'
-                ? 'bg-amber-950/80 border-amber-500/40 text-amber-300 animate-pulse'
-                : 'bg-red-950/80 border-red-500/40 text-red-400'
-            }`}
-          >
-            {saveStatus === 'SAVED' ? '● Saved' : saveStatus === 'SAVING' ? '⟳ Saving...' : 'Save Failed'}
-          </span>
+          saveStatus === 'ERROR' ? (
+            <button
+              onClick={() => DbPersistence.retryLastFailed()}
+              className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full border bg-red-950/90 border-red-500/60 text-red-300 hover:bg-red-900 active:scale-95 transition-all"
+            >
+              Save Failed · Retry
+            </button>
+          ) : (
+            <span
+              className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border transition-all ${
+                saveStatus === 'SAVED'
+                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400'
+                  : 'bg-amber-950/80 border-amber-500/40 text-amber-300 animate-pulse'
+              }`}
+            >
+              {saveStatus === 'SAVED' ? '● Saved' : '⟳ Saving...'}
+            </span>
+          )
         )}
         {onOpenAudit && (
           <button

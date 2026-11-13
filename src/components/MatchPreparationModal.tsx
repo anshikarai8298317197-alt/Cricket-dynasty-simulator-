@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { CareerSave } from '../types/career';
 import { Player } from '../types/player';
 import { FRANCHISES } from '../data/franchises';
+import { getGlobalTeamById, getGlobalTeamSquad } from '../data/globalLeagues';
 import { MatchPreparationPlan } from '../types/tactics';
 import { TacticsEngine } from '../services/tacticsEngine';
 import { FranchiseLogo } from './FranchiseLogo';
@@ -25,26 +26,36 @@ import {
 interface MatchPreparationModalProps {
   career: CareerSave;
   allPlayers: Player[];
+  hasSavedLiveMatch?: boolean;
   onUpdateCareer: (updated: CareerSave) => void;
   onOpenTactics: () => void;
   onStartMatch: () => void;
+  onContinueMatch?: () => void;
   onClose: () => void;
 }
 
 export const MatchPreparationModal: React.FC<MatchPreparationModalProps> = ({
   career,
   allPlayers,
+  hasSavedLiveMatch = false,
   onUpdateCareer,
   onOpenTactics,
   onStartMatch,
+  onContinueMatch,
   onClose,
 }) => {
-  const currentFranchise = FRANCHISES.find(f => f.id === career.franchiseId) || FRANCHISES[0];
+  const currentFranchise = getGlobalTeamById(career.franchiseId) || FRANCHISES.find(f => f.id === career.franchiseId) || FRANCHISES[0];
   
-  // Find upcoming fixture from tournament or default opponent
-  const upcomingFixture = career.tournament?.fixtures?.find(
+  // Find upcoming fixture from active IPL tournament or Champions League
+  const upcomingIplFixture = career.tournament?.fixtures?.find(
     (f: any) => !f.isCompleted && (f.homeFranchiseId === career.franchiseId || f.awayFranchiseId === career.franchiseId)
   );
+  const upcomingGclFixture = !upcomingIplFixture
+    ? career.worldSeason?.championsLeague?.fixtures?.find(
+        (f: any) => !f.isCompleted && (f.homeFranchiseId === career.franchiseId || f.awayFranchiseId === career.franchiseId)
+      )
+    : undefined;
+  const upcomingFixture = upcomingIplFixture || upcomingGclFixture;
 
   const opponentId = upcomingFixture
     ? upcomingFixture.homeFranchiseId === career.franchiseId
@@ -52,11 +63,9 @@ export const MatchPreparationModal: React.FC<MatchPreparationModalProps> = ({
       : upcomingFixture.homeFranchiseId
     : FRANCHISES.find(f => f.id !== career.franchiseId)?.id || 'CSK';
 
-  const opponentFranchise = FRANCHISES.find(f => f.id === opponentId) || FRANCHISES[1];
+  const opponentFranchise = getGlobalTeamById(opponentId) || FRANCHISES.find(f => f.id === opponentId) || FRANCHISES[1];
 
-  const opponentSquad = allPlayers.filter(
-    p => p.originalFranchiseId === opponentId || p.contract.currentFranchiseId === opponentId
-  );
+  const opponentSquad = getGlobalTeamSquad(opponentId, allPlayers);
 
   // Match preparation plan
   const [matchPlan, setMatchPlan] = useState<MatchPreparationPlan>(() => {
@@ -273,11 +282,11 @@ export const MatchPreparationModal: React.FC<MatchPreparationModalProps> = ({
         {/* Footer (Reference Design: MATCH DAY MANAGER -> Start Match) */}
         <div className="p-4 border-t border-slate-800 bg-[#141E33] space-y-2">
           <button
-            onClick={handleStartMatch}
+            onClick={hasSavedLiveMatch && onContinueMatch ? onContinueMatch : handleStartMatch}
             className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-[#FBBF24] via-[#F59E0B] to-[#D97706] hover:from-amber-300 hover:to-amber-500 text-slate-950 font-black text-sm uppercase tracking-wider shadow-xl flex items-center justify-center space-x-2 transition-all transform active:scale-[0.98] cursor-pointer"
           >
             <PlayCircle className="w-5 h-5 fill-current text-slate-950" />
-            <span>Start Match</span>
+            <span>{hasSavedLiveMatch ? 'Continue Match' : 'Start Match'}</span>
           </button>
           <div className="flex items-center justify-between text-[11px] pt-1">
             <button

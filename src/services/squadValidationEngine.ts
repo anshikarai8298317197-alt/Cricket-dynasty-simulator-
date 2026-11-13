@@ -72,15 +72,7 @@ export class SquadValidationEngine {
       errors.push('Squad must contain at least one designated wicketkeeper.');
     }
 
-    // Check bowling options
-    const bowlersCount = squadIds.filter(id => {
-      const p = this.playerMap[id];
-      return p && (p.primaryRole.includes('Bowler') || p.primaryRole.includes('All-rounder'));
-    }).length;
-
-    if (bowlersCount < 5) {
-      errors.push(`Squad must contain at least 5 bowling options. Current: ${bowlersCount}.`);
-    }
+    // Minimum bowler restriction removed per user rules (any number of bowlers allowed)
 
     return {
       isValidForSeason: errors.length === 0,
@@ -156,14 +148,7 @@ export class SquadValidationEngine {
       errors.push('Playing XI must contain at least one designated wicketkeeper.');
     }
 
-    // 6. Must have at least 5 bowling options in XI
-    const bowlingOptionsInXi = xiIds.filter(id => {
-      const p = this.playerMap[id];
-      return p && (p.primaryRole.includes('Bowler') || p.primaryRole.includes('All-rounder'));
-    }).length;
-    if (bowlingOptionsInXi < 5) {
-      errors.push(`Playing XI must have at least 5 bowling options. Currently selected: ${bowlingOptionsInXi}.`);
-    }
+    // Minimum bowler restriction in Playing XI removed: users have complete freedom to select any number of bowlers
 
     // 7. Check for injured players in XI
     xiIds.forEach(id => {
@@ -214,14 +199,7 @@ export class SquadValidationEngine {
       errors.push('Squad must contain at least one wicketkeeper.');
     }
 
-    const bowlersCount = userRosterPlayerIds.filter(id => {
-      const p = this.playerMap[id];
-      return p && (p.primaryRole.includes('Bowler') || p.primaryRole.includes('All-rounder'));
-    }).length;
-
-    if (bowlersCount < 5) {
-      errors.push('Squad must contain at least 5 bowling options.');
-    }
+    // Minimum bowler check removed to maintain consistency with unlimited bowling-option lineup rules
 
     return {
       canComplete: errors.length === 0,

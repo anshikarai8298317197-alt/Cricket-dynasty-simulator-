@@ -4,11 +4,12 @@
  * 11 Tactical Player Avatars with (C) & (WK) badges, and Glowing Team Balance Bars
  */
 import React, { useState, useMemo } from 'react';
-import { ArrowLeft, Check, Shield, AlertTriangle, Sparkles, RefreshCw, Trophy, UserCheck, ArrowRight, Eye, List } from 'lucide-react';
+import { ChevronUp, ChevronDown, ArrowLeft, Check, AlertTriangle, Sparkles } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { FRANCHISES } from '../data/franchises';
 import { PLAYERS_DATABASE } from '../data/players';
 import { Player } from '../types/player';
+import { PlayerAvatar } from './PlayerAvatar';
 
 interface PlayingXiScreenProps {
   career: CareerSave;
@@ -16,7 +17,15 @@ interface PlayingXiScreenProps {
     playingXiIds: string[],
     captainId: string,
     viceCaptainId: string,
-    wicketKeeperId: string
+    wicketKeeperId: string,
+    impactPlayerId?: string | null
+  ) => void;
+  onAutoSavePlayingXI?: (
+    playingXiIds: string[],
+    captainId: string,
+    viceCaptainId: string,
+    wicketKeeperId: string,
+    impactPlayerId?: string | null
   ) => void;
   onBack: () => void;
 }
@@ -24,6 +33,7 @@ interface PlayingXiScreenProps {
 export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
   career,
   onConfirmPlayingXI,
+  onAutoSavePlayingXI,
   onBack,
 }) => {
   const franchise = FRANCHISES.find(f => f.id === career.franchiseId) || FRANCHISES[0];
@@ -60,7 +70,25 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
     return keeper ? keeper.id : selectedXiIds[selectedXiIds.length - 1] || '';
   });
 
+  const [impactPlayerId, setImpactPlayerId] = useState<string | null>(() => {
+    if (career.impactPlayerId && !selectedXiIds.includes(career.impactPlayerId)) {
+      return career.impactPlayerId;
+    }
+    const bench = squadPlayers.find(p => !selectedXiIds.includes(p.id));
+    return bench ? bench.id : null;
+  });
+
   const [slotToSwap, setSlotToSwap] = useState<number | null>(null);
+
+  const triggerAutoSave = (
+    xi: string[] = selectedXiIds,
+    cap: string = captainId,
+    vc: string = viceCaptainId,
+    wk: string = wicketKeeperId,
+    imp: string | null = impactPlayerId
+  ) => {
+    onAutoSavePlayingXI?.(xi, cap, vc, wk, imp);
+  };
 
   // Active XI objects
   const playingXi = selectedXiIds.map(id => squadPlayers.find(p => p.id === id)).filter((p): p is Player => p !== undefined);
@@ -68,29 +96,26 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
 
   // Telemetry
   const overseasInXi = playingXi.filter(p => p.isOverseas).length;
-  const bowlingOptionsInXi = playingXi.filter(
-    p => p.primaryRole.includes('Bowler') || p.primaryRole.includes('All-rounder') || p.primaryRole.includes('Specialist')
-  ).length;
 
-  // Team Balance Scores (Screen 4 reference calculations)
+  // Team Balance Scores
   const battingBalance = Math.min(99, Math.round(
-    playingXi.slice(0, 7).reduce((acc, p) => acc + (p.batting?.timing || p.overallRating), 0) / 7
+    playingXi.slice(0, 7).reduce((acc, p) => acc + (p.batting?.timing || p.overallRating), 0) / Math.max(1, playingXi.slice(0, 7).length)
   ));
   const bowlingBalance = Math.min(99, Math.round(
-    playingXi.slice(4, 11).reduce((acc, p) => acc + (p.paceBowling?.speed || p.spinBowling?.turn || p.overallRating), 0) / 7
+    playingXi.slice(4, 11).reduce((acc, p) => acc + (p.paceBowling?.speed || p.spinBowling?.turn || p.overallRating), 0) / Math.max(1, playingXi.slice(4, 11).length)
   ));
   const allroundBalance = Math.min(99, Math.round(
-    playingXi.reduce((acc, p) => acc + (p.batting?.power || p.overallRating), 0) / 11
+    playingXi.reduce((acc, p) => acc + (p.batting?.power || p.overallRating), 0) / Math.max(1, playingXi.length)
   ));
   const fieldingBalance = Math.min(99, Math.round(
-    playingXi.reduce((acc, p) => acc + (p.fielding?.catching || 88), 0) / 11
+    playingXi.reduce((acc, p) => acc + (p.fielding?.catching || 88), 0) / Math.max(1, playingXi.length)
   ));
 
-  // Validation
+  // Validation (no minimum bowler restriction — full lineup selection freedom)
   const errors: string[] = [];
+  const warnings: string[] = [];
   if (selectedXiIds.length !== 11) errors.push(`Must select exactly 11 players (currently ${selectedXiIds.length}).`);
   if (overseasInXi > 4) errors.push(`Overseas limit exceeded in XI (${overseasInXi} / max 4).`);
-  if (bowlingOptionsInXi < 5) errors.push(`Need at least 5 bowling options in XI (currently ${bowlingOptionsInXi}).`);
   if (!captainId || !selectedXiIds.includes(captainId)) errors.push('Captain must be part of Playing XI.');
   if (!wicketKeeperId || !selectedXiIds.includes(wicketKeeperId)) errors.push('Designated Wicketkeeper must be in Playing XI.');
 
@@ -114,23 +139,72 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
     picked.push(...domestic.slice(0, needed));
 
     const finalIds = picked.slice(0, 11).map(p => p.id);
+    const nextWk = bestKeeper ? bestKeeper.id : finalIds[finalIds.length - 1];
+    const nextCap = finalIds[0];
+    const nextVc = finalIds[1];
+    const nextImpact = squadPlayers.find(p => !finalIds.includes(p.id))?.id || null;
+
     setSelectedXiIds(finalIds);
-    setWicketKeeperId(bestKeeper ? bestKeeper.id : finalIds[finalIds.length - 1]);
-    setCaptainId(finalIds[0]);
-    setViceCaptainId(finalIds[1]);
+    setWicketKeeperId(nextWk);
+    setCaptainId(nextCap);
+    setViceCaptainId(nextVc);
+    setImpactPlayerId(nextImpact);
+    triggerAutoSave(finalIds, nextCap, nextVc, nextWk, nextImpact);
+  };
+
+  // Pitch node tap: tap one node then another to swap positions, or tap bench player below
+  const handlePitchNodeTap = (idx: number) => {
+    if (slotToSwap === null) {
+      setSlotToSwap(idx);
+      return;
+    }
+    if (slotToSwap === idx) {
+      setSlotToSwap(null);
+      return;
+    }
+    const newXi = [...selectedXiIds];
+    const temp = newXi[slotToSwap];
+    newXi[slotToSwap] = newXi[idx];
+    newXi[idx] = temp;
+    setSelectedXiIds(newXi);
+    setSlotToSwap(null);
+    triggerAutoSave(newXi);
   };
 
   const handleSwapWithBench = (benchPlayer: Player) => {
     if (slotToSwap === null) return;
+    const replacedId = selectedXiIds[slotToSwap];
     const newXi = [...selectedXiIds];
     newXi[slotToSwap] = benchPlayer.id;
+
+    let nextCap = captainId === replacedId ? benchPlayer.id : captainId;
+    let nextVc = viceCaptainId === replacedId ? benchPlayer.id : viceCaptainId;
+    let nextWk = wicketKeeperId === replacedId ? benchPlayer.id : wicketKeeperId;
+    let nextImpact = impactPlayerId === benchPlayer.id ? replacedId : impactPlayerId;
+
     setSelectedXiIds(newXi);
+    setCaptainId(nextCap);
+    setViceCaptainId(nextVc);
+    setWicketKeeperId(nextWk);
+    setImpactPlayerId(nextImpact);
     setSlotToSwap(null);
+    triggerAutoSave(newXi, nextCap, nextVc, nextWk, nextImpact);
+  };
+
+  const handleMoveOrder = (index: number, direction: 'UP' | 'DOWN') => {
+    const targetIdx = direction === 'UP' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= selectedXiIds.length) return;
+    const newXi = [...selectedXiIds];
+    const temp = newXi[index];
+    newXi[index] = newXi[targetIdx];
+    newXi[targetIdx] = temp;
+    setSelectedXiIds(newXi);
+    triggerAutoSave(newXi);
   };
 
   const handleConfirm = () => {
     if (errors.length > 0) return;
-    onConfirmPlayingXI(selectedXiIds, captainId, viceCaptainId, wicketKeeperId);
+    onConfirmPlayingXI(selectedXiIds, captainId, viceCaptainId, wicketKeeperId, impactPlayerId);
   };
 
   return (
@@ -139,7 +213,10 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
       <div className="bg-[#0C1527] border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="flex items-center space-x-3">
           <button
-            onClick={onBack}
+            onClick={() => {
+              triggerAutoSave();
+              onBack();
+            }}
             className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -217,17 +294,13 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
                   return (
                     <div
                       key={player.id}
-                      onClick={() => setSlotToSwap(isSelected ? null : idx)}
+                      onClick={() => handlePitchNodeTap(idx)}
                       className={`flex flex-col items-center cursor-pointer transition-transform hover:scale-105 active:scale-95 ${
-                        isSelected ? 'scale-110' : ''
+                        isSelected ? 'scale-110 ring-2 ring-amber-400 rounded-2xl p-0.5 bg-amber-500/20' : ''
                       }`}
                     >
                       <div className="relative">
-                        <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-xs shadow-xl ${
-                          isSelected ? 'border-amber-400 bg-amber-500/80 text-slate-950' : 'border-white/80 bg-slate-900/90 text-white'
-                        }`}>
-                          {player.shortName.charAt(0)}
-                        </div>
+                        <PlayerAvatar player={player} size={40} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
                         {isCapt && (
                           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center shadow">
                             C
@@ -258,17 +331,13 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
                   return (
                     <div
                       key={player.id}
-                      onClick={() => setSlotToSwap(isSelected ? null : realIdx)}
+                      onClick={() => handlePitchNodeTap(realIdx)}
                       className={`flex flex-col items-center cursor-pointer transition-transform hover:scale-105 active:scale-95 ${
-                        isSelected ? 'scale-110' : ''
+                        isSelected ? 'scale-110 ring-2 ring-amber-400 rounded-2xl p-0.5 bg-amber-500/20' : ''
                       }`}
                     >
                       <div className="relative">
-                        <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-black text-xs shadow-xl ${
-                          isSelected ? 'border-amber-400 bg-amber-500/80 text-slate-950' : 'border-white/80 bg-slate-900/90 text-white'
-                        }`}>
-                          {player.shortName.charAt(0)}
-                        </div>
+                        <PlayerAvatar player={player} size={36} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
                         {isCapt && (
                           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center shadow">
                             C
@@ -298,19 +367,20 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
 
                   return (
                     <div
-                      onClick={() => setSlotToSwap(isSelected ? null : 6)}
+                      onClick={() => handlePitchNodeTap(6)}
                       className={`flex flex-col items-center cursor-pointer transition-transform hover:scale-105 active:scale-95 ${
-                        isSelected ? 'scale-110' : ''
+                        isSelected ? 'scale-110 ring-2 ring-amber-400 rounded-2xl p-0.5 bg-amber-500/20' : ''
                       }`}
                     >
                       <div className="relative">
-                        <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-black text-xs shadow-xl ${
-                          isSelected ? 'border-amber-400 bg-amber-500/80 text-slate-950' : 'border-white/80 bg-slate-900/90 text-white'
-                        }`}>
-                          {player.shortName.charAt(0)}
-                        </div>
+                        <PlayerAvatar player={player} size={36} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
+                        {isCapt && (
+                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center shadow">
+                            C
+                          </span>
+                        )}
                         {isWk && (
-                          <span className="absolute -top-1 -right-1 px-1 rounded bg-purple-500 text-white font-black text-[8px] shadow">
+                          <span className="absolute -bottom-1 -right-1 px-1 rounded bg-purple-500 text-white font-black text-[8px] shadow">
                             WK
                           </span>
                         )}
@@ -328,25 +398,27 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
                 {playingXi.slice(7, 11).map((player, idx) => {
                   const realIdx = idx + 7;
                   const isCapt = player.id === captainId;
+                  const isWk = player.id === wicketKeeperId;
                   const isSelected = slotToSwap === realIdx;
 
                   return (
                     <div
                       key={player.id}
-                      onClick={() => setSlotToSwap(isSelected ? null : realIdx)}
+                      onClick={() => handlePitchNodeTap(realIdx)}
                       className={`flex flex-col items-center cursor-pointer transition-transform hover:scale-105 active:scale-95 ${
-                        isSelected ? 'scale-110' : ''
+                        isSelected ? 'scale-110 ring-2 ring-amber-400 rounded-2xl p-0.5 bg-amber-500/20' : ''
                       }`}
                     >
                       <div className="relative">
-                        <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-black text-xs shadow-xl ${
-                          isSelected ? 'border-amber-400 bg-amber-500/80 text-slate-950' : 'border-white/80 bg-slate-900/90 text-white'
-                        }`}>
-                          {player.shortName.charAt(0)}
-                        </div>
+                        <PlayerAvatar player={player} size={36} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
                         {isCapt && (
                           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center shadow">
                             C
+                          </span>
+                        )}
+                        {isWk && (
+                          <span className="absolute -bottom-1 -right-1 px-1 rounded bg-purple-500 text-white font-black text-[8px] shadow">
+                            WK
                           </span>
                         )}
                       </div>
@@ -364,7 +436,7 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
               <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl p-3 animate-in fade-in space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-amber-300">
-                    Substitute Slot #{slotToSwap + 1} ({playingXi[slotToSwap]?.name})
+                    Slot #{slotToSwap + 1} ({playingXi[slotToSwap]?.shortName}) — Tap another XI player or bench sub
                   </span>
                   <button
                     onClick={() => setSlotToSwap(null)}
@@ -380,6 +452,7 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
                       onClick={() => handleSwapWithBench(bp)}
                       className="px-3 py-1.5 rounded-xl bg-[#121E36] hover:bg-[#1A2846] border border-slate-700 text-left shrink-0 text-xs flex items-center space-x-2"
                     >
+                      <PlayerAvatar player={bp} size={22} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
                       <span className="font-bold text-white">{bp.shortName}</span>
                       <span className="text-[10px] text-amber-400 font-mono">({bp.overallRating})</span>
                     </button>
@@ -457,7 +530,7 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
 
         {/* ======================= LIST & ROLES VIEW ======================= */}
         {(activeTab === 'LIST' || activeTab === 'ROLES') && (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block px-1">
               Lineup Order (1 to 11)
             </span>
@@ -469,38 +542,66 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
               return (
                 <div
                   key={player.id}
-                  className="card-game-3d rounded-xl p-3 flex items-center justify-between"
+                  className="card-game-3d rounded-xl p-2.5 flex items-center justify-between gap-2"
                 >
-                  <div className="flex items-center space-x-2.5">
-                    <span className="w-6 h-6 rounded-lg bg-slate-950 font-mono text-xs font-bold text-amber-400 flex items-center justify-center border border-slate-800">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className="w-6 h-6 rounded-lg bg-slate-950 font-mono text-xs font-bold text-amber-400 flex items-center justify-center border border-slate-800 shrink-0">
                       {idx + 1}
                     </span>
-                    <div>
-                      <h4 className="font-bold text-xs text-white">{player.name}</h4>
-                      <span className="text-[10px] text-slate-400">{player.primaryRole} · {player.battingHand}</span>
+                    <PlayerAvatar player={player} size={32} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-xs text-white truncate">{player.name}</h4>
+                      <span className="text-[10px] text-slate-400 block truncate">
+                        {player.primaryRole}{player.battingHand ? ` · ${player.battingHand}` : ''}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-1">
+                  <div className="flex items-center space-x-1 shrink-0">
                     <button
-                      onClick={() => setCaptainId(player.id)}
-                      className={`px-2 py-0.5 text-[10px] font-black rounded border transition-colors ${
+                      onClick={() => handleMoveOrder(idx, 'UP')}
+                      disabled={idx === 0}
+                      className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-300 disabled:opacity-30"
+                      title="Move Up"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleMoveOrder(idx, 'DOWN')}
+                      disabled={idx === playingXi.length - 1}
+                      className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-300 disabled:opacity-30 mr-1"
+                      title="Move Down"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setCaptainId(player.id);
+                        triggerAutoSave(selectedXiIds, player.id, viceCaptainId, wicketKeeperId, impactPlayerId);
+                      }}
+                      className={`px-1.5 py-0.5 text-[10px] font-black rounded border transition-colors ${
                         isCapt ? 'bg-amber-400 text-slate-950 border-amber-400' : 'bg-slate-900 text-slate-400 border-slate-800'
                       }`}
                     >
                       C
                     </button>
                     <button
-                      onClick={() => setViceCaptainId(player.id)}
-                      className={`px-2 py-0.5 text-[10px] font-black rounded border transition-colors ${
+                      onClick={() => {
+                        setViceCaptainId(player.id);
+                        triggerAutoSave(selectedXiIds, captainId, player.id, wicketKeeperId, impactPlayerId);
+                      }}
+                      className={`px-1.5 py-0.5 text-[10px] font-black rounded border transition-colors ${
                         isVice ? 'bg-blue-400 text-slate-950 border-blue-400' : 'bg-slate-900 text-slate-400 border-slate-800'
                       }`}
                     >
                       VC
                     </button>
                     <button
-                      onClick={() => setWicketKeeperId(player.id)}
-                      className={`px-2 py-0.5 text-[10px] font-black rounded border transition-colors ${
+                      onClick={() => {
+                        setWicketKeeperId(player.id);
+                        triggerAutoSave(selectedXiIds, captainId, viceCaptainId, player.id, impactPlayerId);
+                      }}
+                      className={`px-1.5 py-0.5 text-[10px] font-black rounded border transition-colors ${
                         isWk ? 'bg-purple-400 text-white border-purple-400' : 'bg-slate-900 text-slate-400 border-slate-800'
                       }`}
                     >
@@ -510,6 +611,55 @@ export const PlayingXiScreen: React.FC<PlayingXiScreenProps> = ({
                 </div>
               );
             })}
+
+            {/* Impact Player Bench Selector */}
+            {benchPlayers.length > 0 && (
+              <div className="card-game-3d rounded-2xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                    Impact Player Nominee
+                  </span>
+                  <span className="text-[10px] text-slate-400">Tactical Bench Sub</span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                  {benchPlayers.map(bp => {
+                    const isImpact = impactPlayerId === bp.id;
+                    return (
+                      <button
+                        key={bp.id}
+                        onClick={() => {
+                          setImpactPlayerId(bp.id);
+                          triggerAutoSave(selectedXiIds, captainId, viceCaptainId, wicketKeeperId, bp.id);
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl border text-left shrink-0 flex items-center space-x-2 transition-all ${
+                          isImpact
+                            ? 'bg-amber-500/20 border-amber-400 text-white'
+                            : 'bg-[#0C1425] border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <PlayerAvatar player={bp} size={22} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
+                        <div>
+                          <span className="text-[11px] font-bold block">{bp.shortName}</span>
+                          <span className="text-[9px] text-slate-400 font-mono">OVR {bp.overallRating}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Non-Blocking Advisory Warnings (e.g. 4 bowling options) */}
+        {warnings.length > 0 && (
+          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <div>
+              {warnings.map((w, idx) => (
+                <p key={idx}>{w}</p>
+              ))}
+            </div>
           </div>
         )}
 

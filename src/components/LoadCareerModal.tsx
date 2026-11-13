@@ -2,11 +2,12 @@
  * WICKET DYNASTY - Load Career & Slot Manager (SCR_04)
  * 5 independent save slots, export/import, delete with confirmation
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Play, Trash2, Download, Upload, Plus, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { StorageService } from '../services/storage';
 import { FRANCHISES } from '../data/franchises';
+import { FranchiseLogo } from './FranchiseLogo';
 
 interface LoadCareerModalProps {
   isOpen: boolean;
@@ -24,6 +25,12 @@ export const LoadCareerModal: React.FC<LoadCareerModalProps> = ({
   const [slots, setSlots] = useState<(CareerSave | null)[]>(StorageService.getAllSlots());
   const [slotToDelete, setSlotToDelete] = useState<number | null>(null);
   const [importNotice, setImportNotice] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setSlots(StorageService.getAllSlots());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -146,15 +153,7 @@ export const LoadCareerModal: React.FC<LoadCareerModalProps> = ({
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2.5">
                     {franchise && (
-                      <div
-                        className="w-10 h-10 rounded-xl border flex items-center justify-center font-bold text-white text-xs shrink-0"
-                        style={{
-                          backgroundColor: `${franchise.primaryColor}25`,
-                          borderColor: franchise.primaryColor,
-                        }}
-                      >
-                        {franchise.shortName}
-                      </div>
+                      <FranchiseLogo franchiseId={franchise.id} size={40} className="rounded-xl" />
                     )}
                     <div>
                       <div className="flex items-center gap-1.5">

@@ -45,8 +45,12 @@ export interface BidRecord {
 
 export interface AuctionLot {
   lotNumber: number;
+  lotId?: string;
   player: Player;
   category: AuctionSetCategory;
+  setIndex?: number;
+  setKey?: string;
+  setTitle?: string;
   tier: RatingTier;
   basePriceCr: number;
   currentBidCr: number;

@@ -136,9 +136,11 @@ export const MASTER_PLAYERS_LIST: Player[] = (rawDatabase.players as RawPlayer[]
     ? (isPaceDominant ? 'Fast' : 'Off Spin')
     : 'None';
 
-  const bowlingArm: BowlingArm = 'Right Arm';
+  const bowlingArm: BowlingArm | null = p.bowlingStyle
+    ? (p.bowlingStyle.toLowerCase().includes('left') ? 'Left Arm' : 'Right Arm')
+    : null;
 
-  const bowlingSpeedClass: BowlingSpeedClass = isBowlerOrAllRounder
+  const bowlingSpeedClass: BowlingSpeedClass | null = isBowlerOrAllRounder
     ? (p.attributes.pace >= 90
         ? 'Express (145+ km/h)'
         : p.attributes.pace >= 80
@@ -150,14 +152,16 @@ export const MASTER_PLAYERS_LIST: Player[] = (rawDatabase.players as RawPlayer[]
     ? (p.battingHand.includes('Left') ? 'Left Hand' : 'Right Hand')
     : null;
 
+  const isOverseas = Boolean(p.country && !/india/i.test(p.country));
+
   return {
     id: p.id,
     name: p.name,
     shortName: deriveShortName(p.name),
     age: p.age,
     country: p.country,
-    nationality: p.country || 'IND',
-    isOverseas: false,
+    nationality: p.country || 'N/A',
+    isOverseas,
     isReal: !p.isFictional,
     isFictional: !!p.isFictional,
     isCapped: p.rosterStatus === 'CURRENT_2026_SQUAD' || p.tier === 'PLATINUM' || p.tier === 'DIAMOND' || p.tier === 'GOLD',
@@ -269,28 +273,80 @@ export const MASTER_PLAYERS_MAP: Record<string, Player> = MASTER_PLAYERS_LIST.re
 );
 
 /**
- * Build 320 Auction Lots strictly organized by:
- * 1. Platinum (mixed roles)
- * 2. Diamond (BAT, BWL, AR, WK)
- * 3. Gold (BAT, BWL, AR, WK)
- * 4. Silver (BAT, BWL, AR, WK)
- * 5. Bronze (BAT, BWL, AR, WK)
+ * 17-Set Authoritative Auction Order:
+ *  1: Platinum (Mixed Roles)
+ *  2-5: Diamond (Batter, Bowler, All-rounder, Wicketkeeper)
+ *  6-9: Gold (Batter, Bowler, All-rounder, Wicketkeeper)
+ * 10-13: Silver (Batter, Bowler, All-rounder, Wicketkeeper)
+ * 14-17: Bronze (Batter, Bowler, All-rounder, Wicketkeeper)
  */
-function getRoleRank(cat: string): number {
-  if (cat === 'BAT' || cat === 'BATTER') return 1;
-  if (cat === 'BOWLER' || cat === 'BWL') return 2;
-  if (cat === 'ALL_ROUNDER' || cat === 'AR') return 3;
-  if (cat === 'WICKETKEEPER' || cat === 'WK') return 4;
-  return 5;
+function normalizeRoleCategoryKey(cat: string): 'BAT' | 'BOWLER' | 'ALL_ROUNDER' | 'WICKETKEEPER' {
+  const norm = (cat || '').toUpperCase().trim();
+  if (norm === 'BAT' || norm === 'BATTER') return 'BAT';
+  if (norm === 'BOWLER' || norm === 'BWL') return 'BOWLER';
+  if (norm === 'ALL_ROUNDER' || norm === 'AR') return 'ALL_ROUNDER';
+  if (norm === 'WICKETKEEPER' || norm === 'WK') return 'WICKETKEEPER';
+  return 'BAT';
 }
 
-function getCategoryDisplayName(cat: string, tier: string): AuctionSetCategory {
-  if (tier === 'PLATINUM') return 'Platinum Marquee Pool';
-  if (cat === 'BAT' || cat === 'BATTER') return 'Elite Top-order Batters';
-  if (cat === 'BOWLER' || cat === 'BWL') return 'Fast Bowlers';
-  if (cat === 'ALL_ROUNDER' || cat === 'AR') return 'Batting All-rounders';
-  if (cat === 'WICKETKEEPER' || cat === 'WK') return 'Elite Wicketkeepers';
-  return 'Middle-order Batters';
+function getRoleRank(cat: string): number {
+  const key = normalizeRoleCategoryKey(cat);
+  if (key === 'BAT') return 1;
+  if (key === 'BOWLER') return 2;
+  if (key === 'ALL_ROUNDER') return 3;
+  return 4;
+}
+
+function getSetMeta(tier: 'PLATINUM' | 'DIAMOND' | 'GOLD' | 'SILVER' | 'BRONZE', rawCat: string): {
+  setIndex: number;
+  setKey: string;
+  setTitle: string;
+  category: AuctionSetCategory;
+} {
+  if (tier === 'PLATINUM') {
+    return {
+      setIndex: 1,
+      setKey: 'PLATINUM_MIXED',
+      setTitle: 'Platinum Marquee (Mixed)',
+      category: 'Platinum Marquee Pool',
+    };
+  }
+
+  const tierTitle = toRatingTier(tier);
+  const roleKey = normalizeRoleCategoryKey(rawCat);
+  const tierOffset =
+    tier === 'DIAMOND' ? 1 : tier === 'GOLD' ? 5 : tier === 'SILVER' ? 9 : 13;
+
+  if (roleKey === 'BAT') {
+    return {
+      setIndex: tierOffset + 1,
+      setKey: `${tier}_BAT`,
+      setTitle: `${tierTitle} Batter`,
+      category: 'BAT',
+    };
+  }
+  if (roleKey === 'BOWLER') {
+    return {
+      setIndex: tierOffset + 2,
+      setKey: `${tier}_BOWLER`,
+      setTitle: `${tierTitle} Bowler`,
+      category: 'BOWLER',
+    };
+  }
+  if (roleKey === 'ALL_ROUNDER') {
+    return {
+      setIndex: tierOffset + 3,
+      setKey: `${tier}_ALL_ROUNDER`,
+      setTitle: `${tierTitle} All-rounder`,
+      category: 'ALL_ROUNDER',
+    };
+  }
+  return {
+    setIndex: tierOffset + 4,
+    setKey: `${tier}_WICKETKEEPER`,
+    setTitle: `${tierTitle} Wicketkeeper`,
+    category: 'WICKETKEEPER',
+  };
 }
 
 export function buildAuthoritativeAuctionSchedule(playersPool: Player[] = MASTER_PLAYERS_LIST): AuctionLot[] {
@@ -310,12 +366,17 @@ export function buildAuthoritativeAuctionSchedule(playersPool: Player[] = MASTER
 
   for (const t of tiers) {
     const tierLots = rawLots.filter(l => l.tier === t);
-    let sortedTierLots = [...tierLots];
+    const sortedTierLots = [...tierLots];
 
-    if (t !== 'PLATINUM') {
-      // Sort Diamond, Gold, Silver, Bronze by:
-      // 1. Role: BAT (1), BWL (2), AR (3), WK (4)
-      // 2. Player OVR descending
+    if (t === 'PLATINUM') {
+      // Platinum stays mixed roles in one tier, ordered by OVR desc
+      sortedTierLots.sort((a, b) => {
+        const pA = MASTER_PLAYERS_MAP[a.playerId];
+        const pB = MASTER_PLAYERS_MAP[b.playerId];
+        return (pB ? pB.overallRating : 0) - (pA ? pA.overallRating : 0);
+      });
+    } else {
+      // Diamond, Gold, Silver, Bronze sorted into 4 role sets: BAT (1), BOWLER (2), ALL_ROUNDER (3), WICKETKEEPER (4)
       sortedTierLots.sort((a, b) => {
         const rankA = getRoleRank(a.category);
         const rankB = getRoleRank(b.category);
@@ -329,11 +390,16 @@ export function buildAuthoritativeAuctionSchedule(playersPool: Player[] = MASTER
     for (const lot of sortedTierLots) {
       const player = MASTER_PLAYERS_MAP[lot.playerId];
       if (!player) continue;
+      const meta = getSetMeta(t, lot.category);
 
       orderedLots.push({
         lotNumber: lotCounter++,
+        lotId: lot.lotId,
         player,
-        category: getCategoryDisplayName(lot.category, t),
+        category: meta.category,
+        setIndex: meta.setIndex,
+        setKey: meta.setKey,
+        setTitle: meta.setTitle,
         tier: toRatingTier(t),
         basePriceCr: lot.basePriceCr,
         currentBidCr: lot.basePriceCr,

@@ -9,6 +9,8 @@ import { FRANCHISES } from '../data/franchises';
 import { PLAYERS_DATABASE } from '../data/players';
 import { Player } from '../types/player';
 import { PlayerProfileModal } from './PlayerProfileModal';
+import { FranchiseLogo } from './FranchiseLogo';
+import { PlayerAvatar } from './PlayerAvatar';
 
 interface SquadManagementScreenProps {
   career: CareerSave;
@@ -56,7 +58,6 @@ export const SquadManagementScreen: React.FC<SquadManagementScreenProps> = ({
   const missingRequirements: string[] = [];
   if (squadPlayers.length < 18) missingRequirements.push(`Need at least ${18 - squadPlayers.length} more players to reach minimum 18.`);
   if (keeperCount === 0) missingRequirements.push('Squad requires at least 1 designated Wicketkeeper.');
-  if (paceCount + spinCount < 5) missingRequirements.push('Squad requires at least 5 bowling options.');
   if (overseasCount > 8) missingRequirements.push('Exceeded limit of 8 overseas players in squad.');
 
   // Filtered squad list
@@ -79,15 +80,7 @@ export const SquadManagementScreen: React.FC<SquadManagementScreenProps> = ({
       <div className="p-3.5 bg-[#121E36] border-b border-[#1E2D4A] space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div
-              className="w-10 h-10 rounded-xl border flex items-center justify-center font-bold text-white text-xs"
-              style={{
-                backgroundColor: `${franchise.primaryColor}25`,
-                borderColor: franchise.primaryColor,
-              }}
-            >
-              {franchise.shortName}
-            </div>
+            <FranchiseLogo franchiseId={franchise.id} size={40} />
             <div>
               <h2 className="text-base font-bold text-white">{franchise.name} Roster</h2>
               <p className="text-[11px] text-slate-300">
@@ -195,18 +188,18 @@ export const SquadManagementScreen: React.FC<SquadManagementScreenProps> = ({
             className="p-3 rounded-xl bg-[#121E36] border border-[#1E2D4A] hover:border-[#F59E0B]/50 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-all"
           >
             <div className="flex items-center gap-2.5">
-              <span className="w-8 h-8 rounded-full bg-[#080E1A] border border-[#1E2D4A] flex items-center justify-center font-bold text-xs text-white">
-                {player.shortName.charAt(0)}
-              </span>
+              <PlayerAvatar player={player} size={36} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
               <div>
                 <div className="flex items-center gap-1.5">
                   <h4 className="font-bold text-sm text-white">{player.name}</h4>
                   <span className="text-[10px] font-bold text-slate-400 px-1 rounded bg-[#080E1A]">
-                    {player.nationality}
+                    {player.nationality || 'N/A'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-300">
-                  {player.primaryRole} · {player.age} yrs · {player.battingHand}
+                  {player.primaryRole}
+                  {player.age ? ` · ${player.age} yrs` : ''}
+                  {player.battingHand ? ` · ${player.battingHand}` : ''}
                 </p>
               </div>
             </div>
@@ -216,7 +209,7 @@ export const SquadManagementScreen: React.FC<SquadManagementScreenProps> = ({
                 <span className="text-[10px] text-slate-400 font-mono block">
                   ₹{player.contract.salaryExpectationCr.toFixed(1)} Cr
                 </span>
-                <span className="text-[9px] text-emerald-400 font-bold">Fit 100%</span>
+                <span className="text-[9px] text-emerald-400 font-bold">Fit {player.fitness ?? 100}%</span>
               </div>
               <span className="font-mono text-sm font-black px-2 py-0.5 rounded bg-[#080E1A] text-amber-400 border border-[#F59E0B]/30">
                 {player.overallRating}

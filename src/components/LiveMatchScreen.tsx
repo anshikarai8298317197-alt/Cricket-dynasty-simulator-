@@ -16,6 +16,7 @@ import { MatchResultDetails, BallEvent, InningsScorecard } from '../types/match'
 import { Pitch2DView } from './Pitch2DView';
 import { AudioManager } from '../services/audioManager';
 import { FRANCHISES } from '../data/franchises';
+import { getGlobalTeamById } from '../data/globalLeagues';
 import { FranchiseLogo } from './FranchiseLogo';
 import {
   LiveMatchSession,
@@ -45,6 +46,7 @@ import {
 import { BattingAggressionLevel, FieldingPresetType } from '../types/tactics';
 
 interface LiveMatchScreenProps {
+  careerId?: string;
   matchConfig?: MatchSimulationConfig;
   matchResult?: MatchResultDetails;
   difficulty?: 'EASY' | 'MEDIUM' | 'HARD';
@@ -59,6 +61,7 @@ type BatterApproach = 'Defend' | 'Build' | 'Attack' | 'Slog' | 'Assistant Choice
 type BowlingDirective = 'Yorker / Full' | 'Hard Good Length' | 'Bouncer / Short' | 'Slow / Cutters';
 
 export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
+  careerId,
   matchConfig,
   matchResult,
   difficulty = 'MEDIUM',
@@ -66,18 +69,29 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
   onMatchComplete,
   onExit,
 }) => {
-  // Initialize Authoritative Live Match Session
+  // Initialize or Re-hydrate Authoritative Live Match Session
   const sessionRef = useRef<LiveMatchSession | null>(null);
+  const initialSavedStateRef = useRef(DbPersistence.getActiveLiveMatch());
 
   if (!sessionRef.current) {
+    const savedDeliveryState = initialSavedStateRef.current;
     if (matchConfig) {
-      sessionRef.current = new LiveMatchSession({
+      const fullConfig = {
         ...matchConfig,
         difficulty,
         userFranchiseId,
-      });
+      };
+
+      if (
+        savedDeliveryState &&
+        savedDeliveryState.matchId === matchConfig.matchId &&
+        savedDeliveryState.status !== 'COMPLETED'
+      ) {
+        sessionRef.current = LiveMatchSession.hydrateFromState(fullConfig, savedDeliveryState);
+      } else {
+        sessionRef.current = new LiveMatchSession(fullConfig);
+      }
     } else if (matchResult) {
-      // Re-hydrate session from completed result if needed
       const dummyConfig: MatchSimulationConfig = {
         matchId: matchResult.matchId,
         fixtureId: matchResult.fixtureId,
@@ -86,44 +100,107 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
         homePlayingXi: [],
         awayPlayingXi: [],
       };
-      sessionRef.current = new LiveMatchSession({
+      const completedSession = new LiveMatchSession({
         ...dummyConfig,
         difficulty,
         userFranchiseId,
       });
+      completedSession.status = 'COMPLETED';
+      completedSession.completedResultDetails = matchResult;
+      completedSession.winnerFranchiseId = matchResult.winnerFranchiseId;
+      completedSession.loserFranchiseId = matchResult.loserFranchiseId;
+      completedSession.marginDescription = matchResult.marginDescription;
+      sessionRef.current = completedSession;
     }
   }
 
   const session = sessionRef.current!;
+  const matchedSaved =
+    initialSavedStateRef.current && initialSavedStateRef.current.matchId === session.matchId
+      ? initialSavedStateRef.current
+      : null;
 
   // Reactive UI State
   const [matchStatus, setMatchStatus] = useState<MatchSessionStatus>(session.status);
-  const [currentBall, setCurrentBall] = useState<BallEvent | null>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [currentBall, setCurrentBall] = useState<BallEvent | null>(() => {
+    if (matchedSaved?.currentDelivery) return matchedSaved.currentDelivery as BallEvent;
+    const activeInn = session.currentInningsNumber === 1 ? session.innings1 : session.innings2;
+    return activeInn?.allBalls?.[activeInn.allBalls.length - 1] || null;
+  });
+  const [isPlaying, setIsPlaying] = useState(() => !matchResult && session.status !== 'COMPLETED');
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 4>(2);
   const [isMuted, setIsMuted] = useState(false);
 
   // Modals
   const [isTacticsOpen, setIsTacticsOpen] = useState(false);
   const [isScorecardOpen, setIsScorecardOpen] = useState(false);
-  const [scorecardActiveInnings, setScorecardActiveInnings] = useState<1 | 2>(1);
+  const [scorecardActiveInnings, setScorecardActiveInnings] = useState<1 | 2>(session.currentInningsNumber);
 
   // Tactics States
   const [tacticsTab, setTacticsTab] = useState<TacticsTab>('TACTICS');
   const [tacticsMode, setTacticsMode] = useState<TacticsMode>('SIMPLE');
-  const [liveAggression, setLiveAggression] = useState<BattingAggressionLevel>('Balanced');
-  const [liveFielding, setLiveFielding] = useState<FieldingPresetType>('Balanced Standard T20');
-  const [strikerApproach, setStrikerApproach] = useState<BatterApproach>('Attack');
-  const [bowlingDirective, setBowlingDirective] = useState<BowlingDirective>('Hard Good Length');
-  const [ringPressure, setRingPressure] = useState<'Packed Ring' | 'Boundary Patrol' | 'Balanced'>('Balanced');
+  const [liveAggression, setLiveAggression] = useState<BattingAggressionLevel>(
+    () => matchedSaved?.tactics?.battingAggression || 'Balanced'
+  );
+  const [liveFielding, setLiveFielding] = useState<FieldingPresetType>(
+    () => matchedSaved?.tactics?.fieldingPreset || 'Balanced Standard T20'
+  );
+  const [strikerApproach, setStrikerApproach] = useState<BatterApproach>(
+    () => matchedSaved?.tactics?.strikerApproach || 'Attack'
+  );
+  const [bowlingDirective, setBowlingDirective] = useState<BowlingDirective>(
+    () => matchedSaved?.tactics?.bowlingDirective || 'Hard Good Length'
+  );
+  const [ringPressure, setRingPressure] = useState<'Packed Ring' | 'Boundary Patrol' | 'Balanced'>(
+    () => matchedSaved?.tactics?.ringPressure || 'Balanced'
+  );
 
   // Impact Player substitution
   const [isImpactModalOpen, setIsImpactModalOpen] = useState(false);
-  const [impactUsed, setImpactUsed] = useState(false);
-  const [selectedSubPlayer, setSelectedSubPlayer] = useState<string | null>(null);
+  const [impactUsed, setImpactUsed] = useState<boolean>(() => Boolean(matchedSaved?.impactUsed));
+  const [selectedSubPlayer, setSelectedSubPlayer] = useState<string | null>(() => matchedSaved?.selectedSubPlayer || null);
 
-  const homeFranchise = FRANCHISES.find(f => f.id === session.homeFranchiseId) || FRANCHISES[0];
-  const awayFranchise = FRANCHISES.find(f => f.id === session.awayFranchiseId) || FRANCHISES[1];
+  const persistLiveMatchSnapshot = (latestBall: BallEvent | null = currentBall) => {
+    if (matchResult || session.status === 'COMPLETED') {
+      DbPersistence.clearLiveMatch();
+      return;
+    }
+    DbPersistence.saveLiveMatchDelivery(
+      session.serializeState({
+        careerId,
+        currentDelivery: latestBall,
+        impactUsed,
+        selectedSubPlayer,
+        tactics: {
+          battingAggression: liveAggression,
+          fieldingPreset: liveFielding,
+          strikerApproach,
+          bowlingDirective,
+          ringPressure,
+        },
+      })
+    );
+  };
+
+  const persistSnapshotRef = useRef(persistLiveMatchSnapshot);
+  persistSnapshotRef.current = persistLiveMatchSnapshot;
+
+  // Ensure started match is immediately persisted even before ball 1 or on refresh/unload
+  useEffect(() => {
+    if (matchResult || session.status === 'COMPLETED') return;
+    persistSnapshotRef.current();
+
+    const handleBeforeUnload = () => {
+      persistSnapshotRef.current();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [matchResult, session]);
+
+  const homeFranchise = getGlobalTeamById(session.homeFranchiseId) || FRANCHISES.find(f => f.id === session.homeFranchiseId) || FRANCHISES[0];
+  const awayFranchise = getGlobalTeamById(session.awayFranchiseId) || FRANCHISES.find(f => f.id === session.awayFranchiseId) || FRANCHISES[1];
 
   // Tick: Execute Delivery-by-Delivery Simulation
   useEffect(() => {
@@ -139,6 +216,11 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
     const intervalTime = Math.max(250, 1800 / playbackSpeed);
 
     const interval = setInterval(() => {
+      if (!session.battingFirstXi.length || !session.bowlingFirstXi.length) {
+        setIsPlaying(false);
+        return;
+      }
+
       const tacticsInput: LiveTacticsInput = {
         battingAggression: liveAggression as any,
         strikerApproach,
@@ -151,20 +233,12 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
         setCurrentBall(ball);
         setMatchStatus(session.status);
 
-        // Authoritative Auto-save after EVERY completed delivery
-        DbPersistence.saveLiveMatchDelivery({
-          matchId: session.matchId,
-          fixtureId: session.fixtureId,
-          homeFranchiseId: session.homeFranchiseId,
-          awayFranchiseId: session.awayFranchiseId,
-          currentInnings: session.currentInningsNumber,
-          status: session.status,
-          innings1: session.innings1,
-          innings2: session.innings2,
-          currentDelivery: ball,
-          tactics: tacticsInput,
-          lastSavedAt: Date.now(),
-        });
+        // Authoritative Auto-save after EVERY completed delivery (including RNG seedState & full state)
+        if (session.status === 'COMPLETED') {
+          DbPersistence.clearLiveMatch();
+        } else {
+          persistLiveMatchSnapshot(ball);
+        }
 
         // Sound feedback
         if (ball.totalRuns === 6) AudioManager.playBoundarySix();
@@ -172,11 +246,11 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
         else if (ball.isWicket) AudioManager.playWicket();
         else if (ball.totalRuns > 0) AudioManager.playBatCrack();
         else AudioManager.playBallBounce();
-      } else if (session.status === 'COMPLETED') {
+      } else if (session.status === 'COMPLETED' && session.completedResultDetails) {
         DbPersistence.clearLiveMatch();
         setMatchStatus('COMPLETED');
         setIsPlaying(false);
-        onMatchComplete(session.completedResultDetails!);
+        onMatchComplete(session.completedResultDetails);
       }
     }, intervalTime);
 
@@ -185,9 +259,12 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
     isPlaying,
     playbackSpeed,
     liveAggression,
+    liveFielding,
     strikerApproach,
     bowlingDirective,
     ringPressure,
+    impactUsed,
+    selectedSubPlayer,
     onMatchComplete,
   ]);
 
@@ -202,6 +279,7 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
   const handleInstantFinish = () => {
     setIsPlaying(false);
     const finalResult = session.fastForwardToEnd();
+    DbPersistence.clearLiveMatch();
     setMatchStatus('COMPLETED');
     const lastBall = finalResult.innings2.allBalls.slice(-1)[0] || finalResult.innings1.allBalls.slice(-1)[0];
     if (lastBall) setCurrentBall(lastBall);
@@ -213,8 +291,8 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
   const currentInningsState = activeInningsNum === 1 ? session.innings1 : session.innings2 || session.innings1;
   const battingTeamId = currentInningsState.battingFranchiseId;
   const bowlingTeamId = currentInningsState.bowlingFranchiseId;
-  const battingFranchise = FRANCHISES.find(f => f.id === battingTeamId) || homeFranchise;
-  const bowlingFranchise = FRANCHISES.find(f => f.id === bowlingTeamId) || awayFranchise;
+  const battingFranchise = getGlobalTeamById(battingTeamId) || FRANCHISES.find(f => f.id === battingTeamId) || homeFranchise;
+  const bowlingFranchise = getGlobalTeamById(bowlingTeamId) || FRANCHISES.find(f => f.id === bowlingTeamId) || awayFranchise;
 
   // Compute live current run rate
   const liveLegalBalls = currentInningsState.legalBallsFaced;
@@ -315,7 +393,10 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
       <div className="flex items-center justify-between px-3 py-1.5 bg-[#0A1224]/95 border-b border-slate-800/80 backdrop-blur-md z-30 shrink-0">
         <div className="flex items-center space-x-2">
           <button
-            onClick={onExit}
+            onClick={() => {
+              persistLiveMatchSnapshot();
+              onExit();
+            }}
             className="p-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-300 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -364,7 +445,11 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
 
           {/* Pause / Play */}
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
+            onClick={() => {
+              const nextPlaying = !isPlaying;
+              if (!nextPlaying) persistLiveMatchSnapshot();
+              setIsPlaying(nextPlaying);
+            }}
             className="p-1 rounded bg-slate-900 text-slate-200 hover:bg-slate-800"
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
@@ -593,7 +678,11 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
       <div className="bg-[#0A1224] border-t border-slate-800 px-3 py-2 flex items-center justify-between z-30 shrink-0">
         {/* Play/Pause Button */}
         <button
-          onClick={() => setIsPlaying(!isPlaying)}
+          onClick={() => {
+            const nextPlaying = !isPlaying;
+            if (!nextPlaying) persistLiveMatchSnapshot();
+            setIsPlaying(nextPlaying);
+          }}
           className={`flex-1 py-2 px-2 rounded-xl font-black text-xs uppercase flex items-center justify-center space-x-1.5 mr-1.5 transition-all ${
             isPlaying
               ? 'bg-slate-900 border border-slate-700 text-slate-300'
@@ -1009,7 +1098,10 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
                 </div>
 
                 <button
-                  onClick={() => setIsTacticsOpen(false)}
+                  onClick={() => {
+                    persistLiveMatchSnapshot();
+                    setIsTacticsOpen(false);
+                  }}
                   className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black py-3 rounded-xl text-xs uppercase tracking-wider"
                 >
                   Apply Tactical Directives Immediately

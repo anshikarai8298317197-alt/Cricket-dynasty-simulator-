@@ -53,7 +53,7 @@ export const AuctionSetTransitionModal: React.FC<AuctionSetTransitionModalProps>
 
         {/* Players List in this upcoming set */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {nextTierPlayers.slice(0, 15).map((player, idx) => (
+          {nextTierPlayers.map((player, idx) => (
             <div
               key={player.id}
               className="flex items-center justify-between p-2.5 rounded-2xl bg-[#121E36] border border-slate-800 hover:border-slate-700 transition-colors"
@@ -68,7 +68,7 @@ export const AuctionSetTransitionModal: React.FC<AuctionSetTransitionModalProps>
                   <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
                     <span>{player.primaryRole}</span>
                     <span>·</span>
-                    <span>{player.country || 'India'}</span>
+                    <span>{player.country || (player.nationality && player.nationality !== 'N/A' ? player.nationality : 'N/A')}</span>
                   </div>
                 </div>
               </div>
@@ -83,12 +83,6 @@ export const AuctionSetTransitionModal: React.FC<AuctionSetTransitionModalProps>
               </div>
             </div>
           ))}
-
-          {nextTierPlayers.length > 15 && (
-            <p className="text-center text-xs text-slate-500 py-2">
-              + {nextTierPlayers.length - 15} more players in this pool
-            </p>
-          )}
         </div>
 
         {/* Footer CTA */}

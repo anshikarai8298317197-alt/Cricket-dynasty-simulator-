@@ -2,8 +2,10 @@
  * WICKET DYNASTY - Career State & Storage Definitions
  */
 
+import { CareerTrophy, MatchHistoryEntry, WorldSeasonState } from './globalSeason';
+
 export type SquadMode = 'Auction Mode' | 'Real Squads Mode' | 'Own Club Mode';
-export type DifficultyLevel = 'Easy' | 'Normal' | 'Hard' | 'Expert';
+export type DifficultyLevel = 'Easy' | 'Medium' | 'Normal' | 'Hard' | 'Expert';
 
 export interface CareerRules {
   allowRtmCards: boolean;
@@ -27,6 +29,7 @@ export interface CareerSave {
   tournamentName: string;
   difficulty: DifficultyLevel;
   squadMode: SquadMode;
+  trainingMode?: 'Auto' | 'Manual';
   rules: CareerRules;
   
   // Selected Franchise
@@ -34,12 +37,14 @@ export interface CareerSave {
   
   // Progression
   currentSeason: number; // 1 to 30
-  seasonPhase: 'Pre-Season' | 'Retentions' | 'Auction' | 'Squad Setup' | 'SEASON_ACTIVE' | 'Playoffs' | 'Season End';
+  currentGameYear?: number; // e.g. 2026
+  seasonPhase: 'Pre-Season' | 'Retentions' | 'Auction' | 'Squad Setup' | 'SEASON_ACTIVE' | 'Playoffs' | 'Champions League' | 'Season End';
   purseBalanceCr: number;
   
   // Squad roster IDs
   squadPlayerIds: string[];
   playingXiIds: string[];
+  impactPlayerId?: string | null;
   captainId: string | null;
   viceCaptainId: string | null;
   wicketKeeperId: string | null;
@@ -53,10 +58,13 @@ export interface CareerSave {
   auctionTransactions?: any[];
   auctionState?: any;
   tournament?: any;
+  worldSeason?: WorldSeasonState;
   
   // Phase 03 Training & Player Workload States
   playerWorkloads?: Record<string, any>;
   careerPlayerOverrides?: Record<string, any>;
+  careerPlayerStats?: Record<string, { matches: number; runs: number; wickets: number }>;
+  triggeredMilestones?: string[];
   coaches?: any[];
   facilities?: any[];
   weeklySchedule?: any;
@@ -67,11 +75,26 @@ export interface CareerSave {
     batting: any;
     bowling: any;
     fielding: any;
+    overallStrategy?: 'Attack' | 'Balanced' | 'Defend' | 'Aggressive' | 'Defensive' | 'Spin Heavy' | 'Pace Attack';
+    matchPlan?: {
+      battingApproach?: string;
+      bowlingPlan?: string;
+      fieldingStrategy?: string;
+      powerplayFocus?: boolean;
+      middleOversFocus?: boolean;
+      deathOversFocus?: boolean;
+    };
   };
   matchPreparationPlan?: any;
   
   // Phase 06 Club Headquarters, Stadium, Finances & Multi-Season
   clubProfile?: any;
+
+  // Permanent Trophies, Achievements & Match History
+  trophiesCollected?: CareerTrophy[];
+  unlockedAchievementIds?: string[];
+  recordedMatchIds?: string[];
+  matchHistory?: MatchHistoryEntry[];
   
   // History summary
   statsSummary: {

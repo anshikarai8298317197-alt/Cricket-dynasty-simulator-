@@ -52,7 +52,7 @@ export const AuctionIntroScreen: React.FC<AuctionIntroScreenProps> = ({
             Welcome to the Live Mega Auction
           </h2>
           <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-            Represent <span className="font-bold text-amber-400">{franchise.name}</span> on the auction table. Build your championship roster across 5 tiered draft sets.
+            Represent <span className="font-bold text-amber-400">{franchise.name}</span> on the auction table. Build your championship roster across 17 structured draft sets.
           </p>
 
           {/* Quick Metrics */}
@@ -76,20 +76,20 @@ export const AuctionIntroScreen: React.FC<AuctionIntroScreenProps> = ({
         <div className="card-game-3d rounded-3xl p-5 space-y-3">
           <h3 className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">
             <Trophy className="w-4 h-4 text-amber-400" />
-            <span>Auction Set Draft Order</span>
+            <span>17-Set Auction Draft Order</span>
           </h3>
 
           <div className="space-y-2">
             {[
-              { set: 'Set 1', tier: 'Platinum', ovr: '90–99 OVR', count: '13 Players', desc: 'Marquee legends & global franchise superstars', color: 'border-cyan-500/40 text-cyan-400 bg-cyan-950/20' },
-              { set: 'Set 2', tier: 'Diamond', ovr: '85–89 OVR', count: '27 Players', desc: 'Tier-1 international & prime domestic stalwarts', color: 'border-blue-500/40 text-blue-400 bg-blue-950/20' },
-              { set: 'Set 3', tier: 'Gold', ovr: '80–84 OVR', count: '80 Players', desc: 'Core match-winners, fast bowlers & destructive hitters', color: 'border-amber-500/40 text-amber-400 bg-amber-950/20' },
-              { set: 'Set 4', tier: 'Silver', ovr: '70–79 OVR', count: '100 Players', desc: 'Emerging prospects, specialized spinners & team depth', color: 'border-slate-500/40 text-slate-300 bg-slate-900/40' },
-              { set: 'Set 5', tier: 'Bronze', ovr: '60–69 OVR', count: '100 Players', desc: 'Domestic uncapped talents, scouts & future dynamos', color: 'border-orange-500/40 text-orange-400 bg-orange-950/20' },
+              { set: 'Set 1', tier: 'Platinum (Mixed)', ovr: '90–99 OVR', count: '13 Players', desc: 'Marquee legends across all roles in one marquee pool', color: 'border-cyan-500/40 text-cyan-400 bg-cyan-950/20' },
+              { set: 'Sets 2–5', tier: 'Diamond (Bat · Bowl · AR · WK)', ovr: '85–89 OVR', count: '27 Players', desc: 'Diamond Batter, Bowler, All-rounder & Wicketkeeper sets', color: 'border-blue-500/40 text-blue-400 bg-blue-950/20' },
+              { set: 'Sets 6–9', tier: 'Gold (Bat · Bowl · AR · WK)', ovr: '80–84 OVR', count: '80 Players', desc: 'Gold Batter, Bowler, All-rounder & Wicketkeeper sets', color: 'border-amber-500/40 text-amber-400 bg-amber-950/20' },
+              { set: 'Sets 10–13', tier: 'Silver (Bat · Bowl · AR · WK)', ovr: '70–79 OVR', count: '100 Players', desc: 'Silver Batter, Bowler, All-rounder & Wicketkeeper sets', color: 'border-slate-500/40 text-slate-300 bg-slate-900/40' },
+              { set: 'Sets 14–17', tier: 'Bronze (Bat · Bowl · AR · WK)', ovr: '60–69 OVR', count: '100 Players', desc: 'Bronze Batter, Bowler, All-rounder & Wicketkeeper sets', color: 'border-orange-500/40 text-orange-400 bg-orange-950/20' },
             ].map(item => (
-              <div key={item.tier} className={`p-3 rounded-2xl border ${item.color} flex items-center justify-between`}>
+              <div key={item.tier} className={`p-3 rounded-2xl border ${item.color} flex items-center justify-between gap-2`}>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">{item.set}</span>
                     <span className="text-xs font-black uppercase tracking-wide">{item.tier}</span>
                     <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/40 border border-white/10">{item.ovr}</span>

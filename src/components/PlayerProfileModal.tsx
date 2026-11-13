@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { X, Shield, Award, Activity, Heart, Smile, Sparkles } from 'lucide-react';
 import { Player } from '../types/player';
 import { FRANCHISES } from '../data/franchises';
+import { PlayerAvatar } from './PlayerAvatar';
 
 interface PlayerProfileModalProps {
   player: Player | null;
@@ -44,19 +45,16 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ player, 
           </button>
 
           <div className="flex items-start gap-3.5">
-            {/* Avatar Placeholder */}
+            {/* Persistent Role-Based Player Avatar */}
             <div className="relative">
-              <div
-                className="w-16 h-16 rounded-full border-2 flex items-center justify-center text-xl font-black text-white shadow-lg"
-                style={{
-                  backgroundColor: franchise ? `${franchise.primaryColor}33` : '#1E2D4A',
-                  borderColor: franchise ? franchise.primaryColor : '#F59E0B',
-                }}
-              >
-                {player.shortName.charAt(0)}
-              </div>
-              <span className="absolute -bottom-1 -right-1 text-xs px-1.5 py-0.2 rounded bg-[#080E1A] border border-[#1E2D4A] font-bold text-slate-200">
-                {player.nationality}
+              <PlayerAvatar
+                player={player}
+                size={64}
+                jerseyColor={franchise?.primaryColor}
+                showRoleBadge
+              />
+              <span className="absolute -bottom-1 -right-1 text-[10px] px-1.5 py-0.2 rounded bg-[#080E1A] border border-[#1E2D4A] font-bold text-slate-200">
+                {player.nationality || 'N/A'}
               </span>
             </div>
 
@@ -66,7 +64,7 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ player, 
                 <h2 className="text-lg font-bold text-white tracking-tight">{player.name}</h2>
               </div>
               <p className="text-xs text-slate-300 font-medium">
-                {player.primaryRole}{player.age ? ` · ${player.age} yrs` : ''} · {player.battingHand || 'Right Hand'}
+                {player.primaryRole}{player.age ? ` · ${player.age} yrs` : ''} · {player.battingHand || 'N/A'}
               </p>
               
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -177,15 +175,15 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ player, 
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
                     <span className="text-slate-400 block text-[10px]">Bowling Type</span>
-                    <span className="font-semibold text-white">{player.bowlingType}</span>
+                    <span className="font-semibold text-white">{player.bowlingType || 'N/A'}</span>
                   </div>
                   <div>
                     <span className="text-slate-400 block text-[10px]">Speed / Class</span>
-                    <span className="font-semibold text-white">{player.bowlingSpeedClass}</span>
+                    <span className="font-semibold text-white">{player.bowlingSpeedClass || 'N/A'}</span>
                   </div>
                   <div>
                     <span className="text-slate-400 block text-[10px]">Batting Hand</span>
-                    <span className="font-semibold text-white">{player.battingHand}</span>
+                    <span className="font-semibold text-white">{player.battingHand || 'N/A'}</span>
                   </div>
                   <div>
                     <span className="text-slate-400 block text-[10px]">Wicketkeeper</span>

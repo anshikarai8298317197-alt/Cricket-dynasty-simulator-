@@ -4,8 +4,9 @@
  */
 import React, { useState } from 'react';
 import { MatchResultDetails } from '../types/match';
-import { FRANCHISES } from '../data/franchises';
-import { Trophy, Award, ArrowLeft, ChevronRight, BarChart2, FileText, CheckCircle2 } from 'lucide-react';
+import { getGlobalTeamById } from '../data/globalLeagues';
+import { FranchiseLogo } from './FranchiseLogo';
+import { Award, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 interface MatchResultScreenProps {
   matchResult: MatchResultDetails;
@@ -19,15 +20,14 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
   const [activeTab, setActiveTab] = useState<'SCORECARD' | 'POTM' | 'OVERS'>('SCORECARD');
   const [activeInningsTab, setActiveInningsTab] = useState<1 | 2>(1);
 
-  const homeFranchise = FRANCHISES.find(f => f.id === matchResult.homeFranchiseId) || FRANCHISES[0];
-  const awayFranchise = FRANCHISES.find(f => f.id === matchResult.awayFranchiseId) || FRANCHISES[1];
+  const homeFranchise = getGlobalTeamById(matchResult.homeFranchiseId);
+  const awayFranchise = getGlobalTeamById(matchResult.awayFranchiseId);
 
   const innings1 = matchResult.innings1;
   const innings2 = matchResult.innings2;
 
   const currentInnings = activeInningsTab === 1 ? innings1 : innings2;
-  const currentBattingFranchise =
-    FRANCHISES.find(f => f.id === currentInnings.battingFranchiseId) || homeFranchise;
+  const currentBattingFranchise = getGlobalTeamById(currentInnings.battingFranchiseId);
 
   return (
     <div className="min-h-screen bg-[#080E1A] text-white flex flex-col font-sans select-none pb-20">
@@ -52,66 +52,52 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
       </div>
 
       <div className="p-4 max-w-md mx-auto w-full space-y-4">
-        {/* Matchup Crests & Scores (Reference Design Replica) */}
-        <div className="bg-gradient-to-r from-[#172545] via-[#0E1A33] to-[#172545] border border-slate-700/60 rounded-2xl p-4 flex items-center justify-between text-center shadow-xl">
+        {/* Matchup Crests & Scores */}
+        <div className="animate-result-enter-1 card-3d-elevated rounded-2xl p-4 flex items-center justify-between text-center">
           {/* Home Team */}
           <div className="flex flex-col items-center flex-1">
-            <div
-              className="w-12 h-12 rounded-2xl border-2 flex items-center justify-center font-black text-sm shadow-lg mb-1.5"
-              style={{
-                backgroundColor: homeFranchise.primaryColor + '30',
-                borderColor: homeFranchise.primaryColor,
-              }}
-            >
-              {homeFranchise.shortName}
-            </div>
+            <FranchiseLogo franchiseId={homeFranchise.id} size={48} className="mb-1.5" />
             <span className="font-black text-white text-xs">{homeFranchise.shortName}</span>
-            <span className="text-sm font-mono font-bold text-slate-200 mt-0.5">
+            <span className="text-sm font-mono font-bold text-slate-200 mt-0.5 tabular-nums">
               {matchResult.homeFranchiseId === innings1.battingFranchiseId
                 ? `${innings1.totalRuns}/${innings1.totalWickets}`
                 : `${innings2.totalRuns}/${innings2.totalWickets}`}
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">
+            <span className="text-[10px] text-slate-400 font-mono tabular-nums">
               ({matchResult.homeFranchiseId === innings1.battingFranchiseId ? innings1.oversDisplay : innings2.oversDisplay} ov)
             </span>
           </div>
 
-          <span className="text-xs font-black text-amber-400 font-mono px-2">VS</span>
+          <span className="pill-3d text-xs font-black text-amber-400 font-mono bg-[#0C1527] px-2.5 py-1 rounded-xl border border-amber-500/30">
+            VS
+          </span>
 
           {/* Away Team */}
           <div className="flex flex-col items-center flex-1">
-            <div
-              className="w-12 h-12 rounded-2xl border-2 flex items-center justify-center font-black text-sm shadow-lg mb-1.5"
-              style={{
-                backgroundColor: awayFranchise.primaryColor + '30',
-                borderColor: awayFranchise.primaryColor,
-              }}
-            >
-              {awayFranchise.shortName}
-            </div>
+            <FranchiseLogo franchiseId={awayFranchise.id} size={48} className="mb-1.5" />
             <span className="font-black text-white text-xs">{awayFranchise.shortName}</span>
-            <span className="text-sm font-mono font-bold text-slate-200 mt-0.5">
+            <span className="text-sm font-mono font-bold text-slate-200 mt-0.5 tabular-nums">
               {matchResult.awayFranchiseId === innings1.battingFranchiseId
                 ? `${innings1.totalRuns}/${innings1.totalWickets}`
                 : `${innings2.totalRuns}/${innings2.totalWickets}`}
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">
+            <span className="text-[10px] text-slate-400 font-mono tabular-nums">
               ({matchResult.awayFranchiseId === innings1.battingFranchiseId ? innings1.oversDisplay : innings2.oversDisplay} ov)
             </span>
           </div>
         </div>
 
         {/* Victory Announcement Banner */}
-        <div className="bg-emerald-500/20 border-2 border-emerald-500/40 rounded-2xl py-3 px-4 text-center shadow-lg">
-          <span className="text-sm font-black text-emerald-300 uppercase tracking-wide">
+        <div className="animate-result-enter-2 bg-gradient-to-b from-emerald-500/25 to-emerald-900/25 border-t border-x border-emerald-400/50 border-b-4 border-b-emerald-800 rounded-2xl py-3.5 px-4 text-center shadow-[0_12px_28px_rgba(16,185,129,0.2)]">
+          <span className="text-sm font-black text-emerald-300 uppercase tracking-wide block">
             {matchResult.marginDescription}
           </span>
         </div>
 
         {/* Player of the Match Card */}
-        <div className="bg-[#101D36] border border-amber-500/30 rounded-2xl p-3.5 flex items-center justify-between shadow-md">
+        <div className="animate-result-enter-3 card-3d-gold rounded-2xl p-3.5 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner">
               <Award className="w-6 h-6" />
             </div>
             <div>
@@ -124,13 +110,13 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
               </p>
             </div>
           </div>
-          <span className="text-xs font-black text-amber-400 font-mono bg-slate-900 px-2 py-1 rounded-lg border border-slate-700">
+          <span className="text-xs font-black text-amber-400 font-mono bg-slate-900 px-2 py-1 rounded-lg border border-slate-700 tabular-nums shrink-0">
             {matchResult.playerOfTheMatch.impactScore} pts
           </span>
         </div>
 
         {/* Sub-Tabs: Scorecard / Overs */}
-        <div className="flex space-x-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800">
+        <div className="animate-result-enter-4 flex space-x-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800">
           <button
             onClick={() => setActiveTab('SCORECARD')}
             className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
@@ -151,12 +137,12 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
 
         {/* SCORECARD TAB */}
         {activeTab === 'SCORECARD' && (
-          <div className="space-y-3">
+          <div className="animate-result-enter-4 space-y-3">
             {/* Innings 1 vs Innings 2 Toggle */}
             <div className="flex space-x-2">
               <button
                 onClick={() => setActiveInningsTab(1)}
-                className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold border transition-all ${
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
                   activeInningsTab === 1
                     ? 'bg-slate-800 border-amber-500 text-white'
                     : 'bg-slate-900/50 border-slate-800 text-slate-500'
@@ -166,7 +152,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
               </button>
               <button
                 onClick={() => setActiveInningsTab(2)}
-                className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold border transition-all ${
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
                   activeInningsTab === 2
                     ? 'bg-slate-800 border-amber-500 text-white'
                     : 'bg-slate-900/50 border-slate-800 text-slate-500'
@@ -177,7 +163,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
             </div>
 
             {/* Batting Table */}
-            <div className="bg-[#0F1A30] border border-slate-800 rounded-xl overflow-hidden text-xs">
+            <div className="card-3d-elevated rounded-xl overflow-hidden text-xs">
               <div className="bg-slate-900/80 px-3 py-2 border-b border-slate-800 flex justify-between font-bold text-slate-400 text-[10px] uppercase">
                 <span>Batter ({currentBattingFranchise.shortName})</span>
                 <div className="flex space-x-3 font-mono">
@@ -199,7 +185,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
                           {b.isOut ? b.dismissalSummary : 'not out'}
                         </span>
                       </div>
-                      <div className="flex space-x-3 font-mono shrink-0 text-slate-200">
+                      <div className="flex space-x-3 font-mono shrink-0 text-slate-200 tabular-nums">
                         <span className="w-6 text-right font-black text-amber-400">{b.runs}</span>
                         <span className="w-6 text-right text-slate-400">{b.balls}</span>
                         <span className="w-5 text-right">{b.fours}</span>
@@ -212,7 +198,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
             </div>
 
             {/* Bowling Table */}
-            <div className="bg-[#0F1A30] border border-slate-800 rounded-xl overflow-hidden text-xs">
+            <div className="card-3d-elevated rounded-xl overflow-hidden text-xs">
               <div className="bg-slate-900/80 px-3 py-2 border-b border-slate-800 flex justify-between font-bold text-slate-400 text-[10px] uppercase">
                 <span>Bowler</span>
                 <div className="flex space-x-3 font-mono">
@@ -227,7 +213,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
                 {currentInnings.bowlers.map(bw => (
                   <div key={bw.playerId} className="px-3 py-2 flex items-center justify-between">
                     <span className="font-bold text-white truncate pr-2">{bw.playerName}</span>
-                    <div className="flex space-x-3 font-mono shrink-0 text-slate-200">
+                    <div className="flex space-x-3 font-mono shrink-0 text-slate-200 tabular-nums">
                       <span className="w-6 text-right">{bw.oversDisplay}</span>
                       <span className="w-6 text-right text-slate-400">{bw.maidens}</span>
                       <span className="w-6 text-right">{bw.runsConceded}</span>
@@ -243,11 +229,11 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
 
         {/* OVER BREAKDOWN TAB */}
         {activeTab === 'OVERS' && (
-          <div className="space-y-2">
+          <div className="animate-result-enter-4 space-y-2">
             {currentInnings.overSummaries.map(over => (
               <div
                 key={over.overNumber}
-                className="bg-[#0F1A30] border border-slate-800 rounded-xl p-3 flex items-center justify-between text-xs"
+                className="card-3d-elevated rounded-xl p-3 flex items-center justify-between text-xs"
               >
                 <div>
                   <span className="font-bold text-white">Over {over.overNumber}</span>
@@ -270,7 +256,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
                       </span>
                     ))}
                   </div>
-                  <span className="font-mono font-bold text-amber-400 pl-2">
+                  <span className="font-mono font-bold text-amber-400 pl-2 tabular-nums">
                     {over.teamScoreAtEnd}/{over.teamWicketsAtEnd}
                   </span>
                 </div>
@@ -281,12 +267,12 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
       </div>
 
       {/* Bottom Sticky Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#0C1527]/95 backdrop-blur-md border-t border-slate-800 p-3 flex justify-center">
+      <div className="animate-result-enter-5 fixed bottom-0 left-0 right-0 bg-[#0C1527]/95 backdrop-blur-md border-t border-slate-800 p-3 flex justify-center">
         <button
           onClick={onContinue}
-          className="w-full max-w-md bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black py-3 rounded-xl uppercase tracking-wider text-xs flex items-center justify-center space-x-2 shadow-xl"
+          className="w-full max-w-md btn-game-gold py-3 rounded-xl uppercase tracking-wider text-xs flex items-center justify-center space-x-2 cursor-pointer"
         >
-          <CheckCircle2 className="w-4 h-4" />
+          <CheckCircle2 className="w-4 h-4 text-slate-950" />
           <span>Continue to Tournament Hub</span>
         </button>
       </div>

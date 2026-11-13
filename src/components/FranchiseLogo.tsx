@@ -4,7 +4,7 @@
  * with strict size constraints, responsive containment, and zero layout overflow.
  */
 import React from 'react';
-import { FRANCHISES } from '../data/franchises';
+import { getGlobalTeamById } from '../data/globalLeagues';
 
 export type LogoSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | number | string;
 
@@ -47,15 +47,15 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
   showBackground = true,
 }) => {
   const normId = (franchiseId || '').toUpperCase().trim();
-  const franchise = FRANCHISES.find(f => f.id === normId || f.shortName === normId) || FRANCHISES[0];
+  const franchise = getGlobalTeamById(normId);
   const primary = franchise.primaryColor || '#F59E0B';
+  const secondary = franchise.secondaryColor || '#0F172A';
 
   const px = parseSizeToPixels(size);
 
   const renderCrestSvg = () => {
     switch (normId) {
       case 'CSK':
-        // Chennai Super Kings - Roaring Lion Crest with Whistle Podu crown & stars
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <defs>
@@ -77,7 +77,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'MI':
-        // Mumbai Indians - Sudarshan Razor Chakra Turbine
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <defs>
@@ -102,7 +101,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
 
       case 'RCB':
       case 'BLR':
-        // Royal Challengers Bengaluru - Rampant Red & Gold Lion
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <defs>
@@ -121,7 +119,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'KKR':
-        // Kolkata Knight Riders - Golden Knight Helmet & Purple Blazon
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#3B0764" stroke="#F59E0B" strokeWidth="3" />
@@ -135,7 +132,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'DC':
-        // Delhi Capitals - Twin Red Tigers & Blue Shield
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#1E3A8A" stroke="#EF4444" strokeWidth="3" />
@@ -147,7 +143,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'GT':
-        // Gujarat Titans - Lightning Bolt & Obsidian Blue Shield
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#0F172A" stroke="#D97706" strokeWidth="3" />
@@ -159,7 +154,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'LSG':
-        // Lucknow Super Giants - Eagle Wings & Azure Shield
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#0284C7" stroke="#F97316" strokeWidth="3" />
@@ -173,7 +167,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
 
       case 'PBKS':
       case 'PUN':
-        // Punjab Kings - Crimson Shield & Golden Crown
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#991B1B" stroke="#F59E0B" strokeWidth="3" />
@@ -185,7 +178,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'RR':
-        // Rajasthan Royals - Royal Pink Shield & Sabres Crown
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#DB2777" stroke="#F59E0B" strokeWidth="3" />
@@ -198,7 +190,6 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
         );
 
       case 'SRH':
-        // Sunrisers Hyderabad - Rising Sun Phoenix
         return (
           <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
             <path d="M50 6 L86 22 L86 62 Q86 88 50 95 Q14 88 14 62 L14 22 Z" fill="#EA580C" stroke="#000000" strokeWidth="3" />
@@ -210,15 +201,59 @@ export const FranchiseLogo: React.FC<FranchiseLogoProps> = ({
           </svg>
         );
 
-      default:
+      default: {
+        // Bespoke international franchise crest SVG for BBL, PSL, SA20, CPL, BPL, ILT20, The Hundred, or TBD slots
+        const isTbd = normId.startsWith('TBD');
+        const label = isTbd ? 'TBD' : franchise.shortName.slice(0, 4);
+        const fontSize = label.length >= 4 ? 16 : label.length === 3 ? 19 : 21;
+        const fillMain = isTbd ? '#1E293B' : primary;
+        const strokeMain = isTbd ? '#475569' : (secondary === '#18181B' || secondary === '#09090B' || secondary === '#0F172A' ? '#FBBF24' : secondary);
+
         return (
-          <div
-            className="w-full h-full flex items-center justify-center font-black text-white text-xs select-none"
-            style={{ backgroundColor: primary }}
-          >
-            {franchise.shortName}
-          </div>
+          <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" className="block max-w-full max-h-full">
+            <defs>
+              <linearGradient id={`intl_${normId}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={fillMain} />
+                <stop offset="100%" stopColor="#091120" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M50 6 L86 20 L86 58 Q86 84 50 95 Q14 84 14 58 L14 20 Z"
+              fill={`url(#intl_${normId})`}
+              stroke={strokeMain}
+              strokeWidth="3.2"
+            />
+            <path d="M22 28 L50 16 L78 28 L78 36 L50 24 L22 36 Z" fill={strokeMain} opacity="0.85" />
+            <circle cx="50" cy="40" r="6" fill="#FBBF24" opacity={isTbd ? 0.3 : 0.95} />
+            <text
+              x="50"
+              y="74"
+              textAnchor="middle"
+              fill="#FFFFFF"
+              fontWeight="900"
+              fontSize={fontSize}
+              fontFamily="sans-serif"
+              letterSpacing="0.5"
+            >
+              {label}
+            </text>
+            {!isTbd && (
+              <text
+                x="50"
+                y="87"
+                textAnchor="middle"
+                fill="#E2E8F0"
+                fontWeight="700"
+                fontSize="9"
+                fontFamily="sans-serif"
+                opacity="0.85"
+              >
+                {franchise.countryCode}
+              </text>
+            )}
+          </svg>
         );
+      }
     }
   };
 

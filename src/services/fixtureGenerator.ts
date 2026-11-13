@@ -10,6 +10,13 @@
 import { FRANCHISES } from '../data/franchises';
 import { Fixture, PointsTableEntry, TournamentState } from '../types/tournament';
 
+function toIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export class FixtureGenerator {
   /**
    * Generate official 74-match T20 schedule (70 League + 4 Playoffs)
@@ -60,7 +67,6 @@ export class FixtureGenerator {
     }
 
     // Organize 70 matches into 14 rounds of 5 matches each
-    // Backtracking / greedy edge coloring to partition into 14 1-factors (matchings of size 5)
     const rounds: Edge[][] = Array.from({ length: 14 }, () => []);
     const remainingEdges = [...allLeagueEdges];
 
@@ -85,12 +91,10 @@ export class FixtureGenerator {
       }
     }
 
-    // Fallback if any residual edges remain due to greedy order
     while (remainingEdges.length > 0) {
       const edge = remainingEdges.pop()!;
-      // Find a round with less than 5 or place in round with least conflicts
       let targetRound = rounds.findIndex(r => r.length < 5);
-      if (targetRound === -1) targetRound = (remainingEdges.length % 14);
+      if (targetRound === -1) targetRound = remainingEdges.length % 14;
       rounds[targetRound].push(edge);
     }
 
@@ -115,10 +119,12 @@ export class FixtureGenerator {
 
         fixtures.push({
           fixtureId: `fix_${matchNumber}`,
+          competitionId: 'IPL',
           matchNumber: matchNumber++,
           roundNumber: r + 1,
           playoffStage: 'NONE',
           dateStr,
+          matchDateIso: toIsoDate(matchDate),
           venue: homeTeam.homeStadium,
           homeFranchiseId: homeTeam.id,
           awayFranchiseId: awayTeam.id,
@@ -135,10 +141,12 @@ export class FixtureGenerator {
     const q1Date = new Date(playoffBaseDate);
     fixtures.push({
       fixtureId: `fix_71`,
+      competitionId: 'IPL',
       matchNumber: 71,
       roundNumber: 15,
       playoffStage: 'QUALIFIER_1',
       dateStr: q1Date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' }),
+      matchDateIso: toIsoDate(q1Date),
       venue: 'Narendra Modi Stadium, Ahmedabad',
       homeFranchiseId: 'TBD_1',
       awayFranchiseId: 'TBD_2',
@@ -150,10 +158,12 @@ export class FixtureGenerator {
     elimDate.setDate(playoffBaseDate.getDate() + 1);
     fixtures.push({
       fixtureId: `fix_72`,
+      competitionId: 'IPL',
       matchNumber: 72,
       roundNumber: 15,
       playoffStage: 'ELIMINATOR',
       dateStr: elimDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' }),
+      matchDateIso: toIsoDate(elimDate),
       venue: 'Narendra Modi Stadium, Ahmedabad',
       homeFranchiseId: 'TBD_3',
       awayFranchiseId: 'TBD_4',
@@ -165,10 +175,12 @@ export class FixtureGenerator {
     q2Date.setDate(playoffBaseDate.getDate() + 3);
     fixtures.push({
       fixtureId: `fix_73`,
+      competitionId: 'IPL',
       matchNumber: 73,
       roundNumber: 15,
       playoffStage: 'QUALIFIER_2',
       dateStr: q2Date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' }),
+      matchDateIso: toIsoDate(q2Date),
       venue: 'M. A. Chidambaram Stadium, Chennai',
       homeFranchiseId: 'TBD_LQ1',
       awayFranchiseId: 'TBD_WELIM',
@@ -180,10 +192,12 @@ export class FixtureGenerator {
     finalDate.setDate(playoffBaseDate.getDate() + 5);
     fixtures.push({
       fixtureId: `fix_74`,
+      competitionId: 'IPL',
       matchNumber: 74,
       roundNumber: 15,
       playoffStage: 'FINAL',
       dateStr: finalDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' }),
+      matchDateIso: toIsoDate(finalDate),
       venue: 'M. A. Chidambaram Stadium, Chennai',
       homeFranchiseId: 'TBD_WQ1',
       awayFranchiseId: 'TBD_WQ2',
@@ -208,9 +222,13 @@ export class FixtureGenerator {
     }));
 
     return {
-      tournamentId: `trn_${seasonYear}`,
-      name: 'T20 Franchise League',
+      tournamentId: `trn_IPL_${seasonYear}`,
+      leagueId: 'IPL',
+      name: 'Indian Premier League',
+      country: 'India',
       seasonYear,
+      startDateIso: toIsoDate(baseDate),
+      endDateIso: toIsoDate(finalDate),
       currentRound: 1,
       totalLeagueMatches: 70,
       totalPlayoffMatches: 4,

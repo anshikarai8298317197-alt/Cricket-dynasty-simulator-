@@ -83,4 +83,182 @@
       #25692a 56px
     );
   }
+
+  /* Animated Trophy Shelf Card with CSS Transitions & Metallic Hover */
+  .trophy-shelf-card {
+    position: relative;
+    overflow: hidden;
+    transition:
+      transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.35s ease,
+      border-color 0.35s ease,
+      background-color 0.35s ease;
+  }
+
+  .trophy-shelf-card::after {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    background: linear-gradient(
+      115deg,
+      transparent 30%,
+      rgba(255, 248, 214, 0.28) 48%,
+      rgba(251, 191, 36, 0.14) 55%,
+      transparent 70%
+    );
+    transform: translateX(-125%) rotate(8deg);
+    transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+  }
+
+  .trophy-shelf-card:hover {
+    transform: translateY(-6px) scale(1.03);
+    box-shadow:
+      0 14px 28px rgba(0, 0, 0, 0.75),
+      0 0 22px rgba(251, 191, 36, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    border-color: rgba(251, 191, 36, 0.8);
+  }
+
+  .trophy-shelf-card:hover::after {
+    transform: translateX(125%) rotate(8deg);
+  }
+
+  .trophy-shelf-card-locked {
+    transition:
+      transform 0.3s ease,
+      border-color 0.3s ease,
+      opacity 0.3s ease;
+  }
+
+  .trophy-shelf-card-locked:hover {
+    transform: translateY(-2px);
+    border-color: rgba(148, 163, 184, 0.45);
+  }
+
+  /* Rich 3D Elevated Glass-Metallic Panels */
+  .card-3d-elevated {
+    background: linear-gradient(165deg, #1A2B4C 0%, #101B33 55%, #091020 100%);
+    border-top: 1.5px solid rgba(255, 255, 255, 0.16);
+    border-left: 1px solid rgba(148, 163, 184, 0.18);
+    border-right: 1px solid rgba(15, 23, 42, 0.9);
+    border-bottom: 3.5px solid #040812;
+    box-shadow:
+      0 14px 30px -6px rgba(0, 0, 0, 0.78),
+      0 4px 10px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  .card-3d-gold {
+    background: linear-gradient(160deg, #272238 0%, #141B30 48%, #070C18 100%);
+    border-top: 1.5px solid rgba(251, 191, 36, 0.65);
+    border-left: 1px solid rgba(245, 158, 11, 0.4);
+    border-right: 1px solid rgba(245, 158, 11, 0.25);
+    border-bottom: 4px solid #78350F;
+    box-shadow:
+      0 18px 36px -8px rgba(0, 0, 0, 0.85),
+      0 0 28px rgba(245, 158, 11, 0.18),
+      inset 0 1px 0 rgba(253, 224, 71, 0.3);
+  }
+
+  .card-3d-cyan {
+    background: linear-gradient(160deg, #102B3F 0%, #0D192D 52%, #070D19 100%);
+    border-top: 1.5px solid rgba(34, 211, 238, 0.55);
+    border-left: 1px solid rgba(6, 182, 212, 0.35);
+    border-right: 1px solid rgba(6, 182, 212, 0.2);
+    border-bottom: 4px solid #164E63;
+    box-shadow:
+      0 18px 36px -8px rgba(0, 0, 0, 0.85),
+      0 0 26px rgba(34, 211, 238, 0.16),
+      inset 0 1px 0 rgba(165, 243, 252, 0.25);
+  }
+
+  .tile-3d {
+    background: linear-gradient(180deg, #172747 0%, #101B33 65%, #0B1324 100%);
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    border-left: 1px solid rgba(51, 65, 85, 0.6);
+    border-right: 1px solid rgba(15, 23, 42, 0.9);
+    border-bottom: 3px solid #050914;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  }
+  .tile-3d:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 22px rgba(0, 0, 0, 0.65), 0 0 14px rgba(245, 158, 11, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+  .tile-3d:active {
+    transform: translateY(1.5px);
+    border-bottom-width: 1.5px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.6);
+  }
+
+  .calendar-day-3d {
+    background: linear-gradient(180deg, #16233F 0%, #0E172B 100%);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 2.5px solid #050A14;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+  }
+
+  .calendar-day-3d-active {
+    background: linear-gradient(180deg, #FDE047 0%, #F59E0B 60%, #D97706 100%);
+    border-top: 1.5px solid rgba(255, 255, 255, 0.85);
+    border-bottom: 3px solid #92400E;
+    box-shadow: 0 6px 16px rgba(245, 158, 11, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .pill-3d {
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+
+  /* Match Result Screen Staggered Entrance Animations (compositor-only: transform + opacity) */
+  .animate-result-enter-1 {
+    animation: resultFadeSlideUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) 0ms both;
+  }
+  .animate-result-enter-2 {
+    animation: resultBannerPop 0.48s cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+  }
+  .animate-result-enter-3 {
+    animation: resultFadeSlideUp 0.46s cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  }
+  .animate-result-enter-4 {
+    animation: resultFadeSlideUp 0.46s cubic-bezier(0.16, 1, 0.3, 1) 260ms both;
+  }
+  .animate-result-enter-5 {
+    animation: resultFadeSlideUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
+  }
 }
+
+@keyframes resultFadeSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes resultBannerPop {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-result-enter-1,
+  .animate-result-enter-2,
+  .animate-result-enter-3,
+  .animate-result-enter-4,
+  .animate-result-enter-5 {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+

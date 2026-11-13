@@ -90,22 +90,36 @@ export class MultiSeasonEngine {
       youthProspects: [...currentProfile.youthProspects, ...newProspects].slice(0, 8),
     };
 
-    // 6. Update Stats Summary (Trophies & Matches)
-    const updatedStats = {
-      ...career.statsSummary,
-      matchesPlayed: career.statsSummary.matchesPlayed + (userEntry?.played || 18),
-      matchesWon: career.statsSummary.matchesWon + (userEntry?.won || 10),
-      matchesLost: career.statsSummary.matchesLost + (userEntry?.lost || 8),
-      trophies: career.statsSummary.trophies + (isUserChampion ? 1 : 0),
-    };
+    // 6. Update Stats Summary only if not already live-tracked via recordedMatchIds
+    const hasLiveTracking = Boolean(career.recordedMatchIds && career.recordedMatchIds.length > 0);
+    const updatedStats = hasLiveTracking
+      ? {
+          ...career.statsSummary,
+          trophies: Math.max(
+            career.statsSummary.trophies,
+            (career.trophiesCollected || []).length
+          ),
+        }
+      : {
+          ...career.statsSummary,
+          matchesPlayed: career.statsSummary.matchesPlayed + (userEntry?.played || 14),
+          matchesWon: career.statsSummary.matchesWon + (userEntry?.won || 7),
+          matchesLost: career.statsSummary.matchesLost + (userEntry?.lost || 7),
+          trophies: career.statsSummary.trophies + (isUserChampion ? 1 : 0),
+        };
 
     const finalCareer: CareerSave = {
       ...careerWithAging,
       currentSeason: currentSeasonNum + 1,
+      currentGameYear: nextSeasonYear,
       seasonPhase: career.squadMode === 'Auction Mode' ? 'Retentions' : 'SEASON_ACTIVE',
       tournament: nextTournament,
       clubProfile: updatedProfile,
       statsSummary: updatedStats,
+      trophiesCollected: career.trophiesCollected || [],
+      unlockedAchievementIds: career.unlockedAchievementIds || [],
+      matchHistory: career.matchHistory || [],
+      recordedMatchIds: career.recordedMatchIds || [],
       lastPlayedAt: Date.now(),
     };
 

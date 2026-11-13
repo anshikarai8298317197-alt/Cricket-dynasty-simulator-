@@ -75,15 +75,51 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
     career.tactics?.fielding || TacticsEngine.generateDefaultFieldingTactics()
   );
 
-  // Match Plan high-level strategy state
-  const [overallStrategy, setOverallStrategy] = useState<'Attack' | 'Balanced' | 'Defend'>('Balanced');
-  const [battingApproach, setBattingApproach] = useState<string>('Aggressive with Freedom');
-  const [bowlingPlan, setBowlingPlan] = useState<string>('Mix with Death Overs Focus');
-  const [fieldingStrategyPreset, setFieldingStrategyPreset] = useState<string>('Standard (T20)');
+  // Match Plan high-level strategy state (hydrated from saved career tactics if present)
+  const [overallStrategy, setOverallStrategy] = useState<'Attack' | 'Balanced' | 'Defend'>(() => {
+    const saved = career.tactics?.overallStrategy;
+    if (saved === 'Attack' || saved === 'Aggressive' || saved === 'Pace Attack') return 'Attack';
+    if (saved === 'Defend' || saved === 'Defensive') return 'Defend';
+    return 'Balanced';
+  });
+  const [battingApproach, setBattingApproach] = useState<string>(
+    () => career.tactics?.matchPlan?.battingApproach || 'Aggressive with Freedom'
+  );
+  const [bowlingPlan, setBowlingPlan] = useState<string>(
+    () => career.tactics?.matchPlan?.bowlingPlan || 'Mix with Death Overs Focus'
+  );
+  const [fieldingStrategyPreset, setFieldingStrategyPreset] = useState<string>(
+    () => career.tactics?.matchPlan?.fieldingStrategy || 'Standard (T20)'
+  );
   const [keyFocus, setKeyFocus] = useState({
-    powerplay: true,
-    middleOvers: true,
-    deathOvers: true,
+    powerplay: career.tactics?.matchPlan?.powerplayFocus ?? true,
+    middleOvers: career.tactics?.matchPlan?.middleOversFocus ?? true,
+    deathOvers: career.tactics?.matchPlan?.deathOversFocus ?? true,
+  });
+
+  const buildUpdatedTacticsCareer = (
+    nextBatting = battingTactics,
+    nextBowling = bowlingTactics,
+    nextFielding = fieldingTactics,
+    nextOverall = overallStrategy,
+    nextPlan = {
+      battingApproach,
+      bowlingPlan,
+      fieldingStrategy: fieldingStrategyPreset,
+      powerplayFocus: keyFocus.powerplay,
+      middleOversFocus: keyFocus.middleOvers,
+      deathOversFocus: keyFocus.deathOvers,
+    }
+  ): CareerSave => ({
+    ...career,
+    tactics: {
+      batting: nextBatting,
+      bowling: nextBowling,
+      fielding: nextFielding,
+      overallStrategy: nextOverall,
+      matchPlan: nextPlan,
+    },
+    lastPlayedAt: Date.now(),
   });
 
   // Reorder Batting Lineup
@@ -96,25 +132,17 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
     currentOrder[index] = currentOrder[targetIndex];
     currentOrder[targetIndex] = temp;
 
-    setBattingTactics({
+    const nextBat = {
       ...battingTactics,
       battingOrderIds: currentOrder,
-    });
+    };
+    setBattingTactics(nextBat);
+    onUpdateCareer(buildUpdatedTacticsCareer(nextBat));
   };
 
   // Save changes to career
   const handleSaveTactics = () => {
-    const updatedCareer: CareerSave = {
-      ...career,
-      tactics: {
-        batting: battingTactics,
-        bowling: bowlingTactics,
-        fielding: fieldingTactics,
-      },
-      lastPlayedAt: Date.now(),
-    };
-
-    onUpdateCareer(updatedCareer);
+    onUpdateCareer(buildUpdatedTacticsCareer());
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 3000);
   };
@@ -142,7 +170,10 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
       <div className="sticky top-0 z-40 bg-[#0C1527]/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="flex items-center space-x-3">
           <button
-            onClick={onBack}
+            onClick={() => {
+              onUpdateCareer(buildUpdatedTacticsCareer());
+              onBack();
+            }}
             className="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -207,9 +238,12 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
                 <button
                   type="button"
                   onClick={() => {
+                    const nextBat = { ...battingTactics, macroAggression: 'Very Aggressive' as const };
+                    const nextBowl = { ...bowlingTactics, macroAggression: 'Attacking Stumps & Slips' as const };
                     setOverallStrategy('Attack');
-                    setBattingTactics({ ...battingTactics, macroAggression: 'Very Aggressive' });
-                    setBowlingTactics({ ...bowlingTactics, macroAggression: 'Attacking Stumps & Slips' });
+                    setBattingTactics(nextBat);
+                    setBowlingTactics(nextBowl);
+                    onUpdateCareer(buildUpdatedTacticsCareer(nextBat, nextBowl, fieldingTactics, 'Attack'));
                   }}
                   className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                     overallStrategy === 'Attack'
@@ -228,9 +262,12 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
                 <button
                   type="button"
                   onClick={() => {
+                    const nextBat = { ...battingTactics, macroAggression: 'Balanced' as const };
+                    const nextBowl = { ...bowlingTactics, macroAggression: 'Balanced Line & Length' as const };
                     setOverallStrategy('Balanced');
-                    setBattingTactics({ ...battingTactics, macroAggression: 'Balanced' });
-                    setBowlingTactics({ ...bowlingTactics, macroAggression: 'Balanced Line & Length' });
+                    setBattingTactics(nextBat);
+                    setBowlingTactics(nextBowl);
+                    onUpdateCareer(buildUpdatedTacticsCareer(nextBat, nextBowl, fieldingTactics, 'Balanced'));
                   }}
                   className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                     overallStrategy === 'Balanced'
@@ -249,9 +286,12 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
                 <button
                   type="button"
                   onClick={() => {
+                    const nextBat = { ...battingTactics, macroAggression: 'Defensive' as const };
+                    const nextBowl = { ...bowlingTactics, macroAggression: 'Containment / Defensive' as const };
                     setOverallStrategy('Defend');
-                    setBattingTactics({ ...battingTactics, macroAggression: 'Defensive' });
-                    setBowlingTactics({ ...bowlingTactics, macroAggression: 'Containment / Defensive' });
+                    setBattingTactics(nextBat);
+                    setBowlingTactics(nextBowl);
+                    onUpdateCareer(buildUpdatedTacticsCareer(nextBat, nextBowl, fieldingTactics, 'Defend'));
                   }}
                   className={`p-3.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                     overallStrategy === 'Defend'
@@ -389,7 +429,7 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
                           </span>
                         </div>
                         <p className="text-[10px] text-slate-400">
-                          {player.battingHand} • {player.primaryRole} • Bat OVR {player.overallRating}
+                          {player.battingHand || 'N/A'} • {player.primaryRole} • Bat OVR {player.overallRating}
                         </p>
                       </div>
                     </div>
@@ -659,7 +699,7 @@ export const TacticalManagementScreen: React.FC<TacticalManagementScreenProps> =
                     <div className="flex items-center justify-between">
                       <div>
                         <span className="text-xs font-bold text-white">{batter.name}</span>
-                        <span className="text-[10px] text-slate-400 block">{batter.battingHand}</span>
+                        <span className="text-[10px] text-slate-400 block">{batter.battingHand || 'N/A'}</span>
                       </div>
                       <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
                         Target: {dossier.recommendedBowlerType}

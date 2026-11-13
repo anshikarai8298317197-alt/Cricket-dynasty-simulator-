@@ -87,10 +87,14 @@ export class StorageService {
    */
   static deleteSlot(slotIndex: number): boolean {
     try {
+      const existing = this.getSlot(slotIndex);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}${slotIndex}`);
       const active = localStorage.getItem(ACTIVE_SLOT_KEY);
       if (active === String(slotIndex)) {
         localStorage.removeItem(ACTIVE_SLOT_KEY);
+      }
+      if (existing?.id) {
+        DbPersistence.deleteCareer(existing.id, slotIndex).catch(() => {});
       }
       return true;
     } catch {

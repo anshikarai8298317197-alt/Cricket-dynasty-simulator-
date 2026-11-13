@@ -12,7 +12,11 @@ import {
 import { MatchResultDetails } from '../types/match';
 import { Player } from '../types/player';
 import { CricketMatchEngine } from './cricketMatchEngine';
-import { FRANCHISES } from '../data/franchises';
+import { getGlobalTeamSquad } from '../data/globalLeagues';
+import { CareerSave } from '../types/career';
+import { DbPersistence } from './dbPersistence';
+
+let aiSimCounter = 0;
 
 export class TournamentEngine {
   /**
@@ -188,8 +192,12 @@ export class TournamentEngine {
       });
     });
 
-    // 4. Playoff Progression Check
+    // 4. Playoff Progression Check & Round Tracking
     this.evaluatePlayoffProgression(updated);
+    const nextPending = updated.fixtures.find(f => !f.isCompleted);
+    if (nextPending) {
+      updated.currentRound = nextPending.roundNumber;
+    }
 
     return updated;
   }
@@ -257,10 +265,18 @@ export class TournamentEngine {
     allFranchiseSquads?: Record<string, string[]>
   ): TournamentState {
     let current = tournament;
+    const activeSaved = DbPersistence.getActiveLiveMatch();
+    const protectedId =
+      activeSaved && activeSaved.status !== 'COMPLETED' ? activeSaved.fixtureId : null;
 
     // Filter uncompleted fixtures strictly before upToMatchNumber, ordered by matchNumber
     const pendingFixtures = current.fixtures
-      .filter(f => !f.isCompleted && f.matchNumber < upToMatchNumber)
+      .filter(
+        f =>
+          !f.isCompleted &&
+          f.matchNumber < upToMatchNumber &&
+          f.fixtureId !== protectedId
+      )
       .sort((a, b) => a.matchNumber - b.matchNumber);
 
     for (const fix of pendingFixtures) {
@@ -281,22 +297,16 @@ export class TournamentEngine {
     fixture: Fixture,
     allPlayers: Player[],
     tournament: TournamentState,
-    allFranchiseSquads?: Record<string, string[]>
+    allFranchiseSquads?: Record<string, string[]>,
+    career?: CareerSave | null
   ): MatchResultDetails {
-    // Determine playing XI for home and away
-    const homeRosterIds = allFranchiseSquads?.[fixture.homeFranchiseId] || [];
-    const awayRosterIds = allFranchiseSquads?.[fixture.awayFranchiseId] || [];
+    const careerForResolve = career || (allFranchiseSquads ? ({ allFranchiseSquads } as CareerSave) : undefined);
+    const homeXi = getGlobalTeamSquad(fixture.homeFranchiseId, allPlayers, careerForResolve);
+    const awayXi = getGlobalTeamSquad(fixture.awayFranchiseId, allPlayers, careerForResolve);
 
-    const homeXi = homeRosterIds.length >= 11
-      ? homeRosterIds.map(id => allPlayers.find(p => p.id === id)).filter(Boolean) as Player[]
-      : allPlayers.filter(p => p.originalFranchiseId === fixture.homeFranchiseId);
-
-    const awayXi = awayRosterIds.length >= 11
-      ? awayRosterIds.map(id => allPlayers.find(p => p.id === id)).filter(Boolean) as Player[]
-      : allPlayers.filter(p => p.originalFranchiseId === fixture.awayFranchiseId);
-
+    aiSimCounter += 1;
     const matchResult = CricketMatchEngine.simulateMatch({
-      matchId: `mat_${fixture.fixtureId}_${Date.now()}`,
+      matchId: `mat_${fixture.fixtureId}_${Date.now()}_${aiSimCounter}`,
       fixtureId: fixture.fixtureId,
       homeFranchiseId: fixture.homeFranchiseId,
       awayFranchiseId: fixture.awayFranchiseId,

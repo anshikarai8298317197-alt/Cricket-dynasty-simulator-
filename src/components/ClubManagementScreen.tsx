@@ -7,10 +7,12 @@ import { CareerSave } from '../types/career';
 import { Player } from '../types/player';
 import { TournamentState } from '../types/tournament';
 import { ClubEngine } from '../services/clubEngine';
-import { MultiSeasonEngine } from '../services/multiSeasonEngine';
+import { GlobalSeasonEngine } from '../services/globalSeasonEngine';
 import { InjuryEngine } from '../services/injuryEngine';
 import { FRANCHISES } from '../data/franchises';
 import { ClubProfile } from '../types/club';
+import { FranchiseLogo } from './FranchiseLogo';
+import { TrophyShelf } from './TrophyShelf';
 import {
   Building2,
   Trophy,
@@ -143,15 +145,14 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
 
   // 4. Advance to Next Season
   const handleConfirmNextSeason = () => {
-    const { updatedCareer, retiredPlayers, seasonSummary } = MultiSeasonEngine.advanceToNextSeason(
+    const { updatedCareer, retiredPlayers } = GlobalSeasonEngine.advanceToNextCalendarYear(
       career,
-      tournament,
       allPlayers
     );
     onUpdateCareer(updatedCareer);
     setShowNextSeasonModal(false);
     notify(
-      `Season ${seasonSummary.seasonNumber} finalized! Welcome to Season ${updatedCareer.currentSeason}. (${retiredPlayers.length} retired).`
+      `Welcome to Season ${updatedCareer.currentSeason} (${updatedCareer.currentGameYear})! Opening Match Day ready. (${retiredPlayers.length} retired).`
     );
   };
 
@@ -314,15 +315,7 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
             <div className="card-game-3d rounded-2xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2.5">
-                  <div
-                    className="w-9 h-9 rounded-xl border flex items-center justify-center font-black text-xs shadow-md"
-                    style={{
-                      backgroundColor: franchise.primaryColor + '30',
-                      borderColor: franchise.primaryColor,
-                    }}
-                  >
-                    {franchise.shortName}
-                  </div>
+                  <FranchiseLogo franchiseId={franchise.id} size={36} className="rounded-xl shadow-md" />
                   <div>
                     <h3 className="text-xs font-black text-white">{franchise.name}</h3>
                     <p className="text-[10px] text-amber-400">Club Level {profile.clubLevel} • Reputation {profile.reputation}/100</p>
@@ -348,6 +341,9 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Animated Trophy Shelf with CSS Metallic Hover Effect */}
+            <TrophyShelf career={career} tournament={tournament} profile={profile} />
 
             {/* Multi-Season Transition Action Card */}
             <div className="card-game-3d rounded-2xl p-4 border border-amber-500/40 flex items-center justify-between">
@@ -450,7 +446,7 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
                     <div>
                       <span className="font-bold text-white text-xs block">{prospect.name}</span>
                       <span className="text-[10px] text-slate-400">
-                        Age {prospect.age} • {prospect.primaryRole}
+                        Age {prospect.age ?? 'N/A'} • {prospect.primaryRole}
                       </span>
                     </div>
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">

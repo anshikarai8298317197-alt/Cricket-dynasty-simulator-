@@ -1,23 +1,29 @@
 /**
  * WICKET DYNASTY - Player Retention & Release Screen (SCR_09)
- * Manage franchise retentions, cost deductions, and RTM card allocation
+ * Manage franchise retentions, cost deductions, RTM allocation, with live autosave & official crests/avatars.
  */
 import React, { useState } from 'react';
-import { ArrowLeft, Check, X, Shield, Wallet, AlertCircle, Info, ChevronRight, RotateCcw } from 'lucide-react';
+import { Check, Info } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { FRANCHISES } from '../data/franchises';
 import { PLAYERS_DATABASE } from '../data/players';
 import { Player } from '../types/player';
+import { FranchiseLogo } from './FranchiseLogo';
+import { PlayerAvatar } from './PlayerAvatar';
 
 interface RetentionScreenProps {
   career: CareerSave;
   onConfirmRetentions: (retainedIds: string[], remainingPurseCr: number) => void;
+  onAutoSaveRetentions?: (retainedIds: string[], remainingPurseCr: number) => void;
   onBack: () => void;
 }
+
+const RETENTION_BRACKETS = [18.0, 14.0, 11.0, 18.0, 14.0]; // Cr
 
 export const RetentionScreen: React.FC<RetentionScreenProps> = ({
   career,
   onConfirmRetentions,
+  onAutoSaveRetentions,
   onBack,
 }) => {
   const franchise = FRANCHISES.find(f => f.id === career.franchiseId) || FRANCHISES[0];
@@ -25,30 +31,34 @@ export const RetentionScreen: React.FC<RetentionScreenProps> = ({
   // Original squad pool belonging to this franchise
   const originalSquad = PLAYERS_DATABASE.filter(p => p.originalFranchiseId === franchise.id);
 
-  // Initial selected retentions (defaulting to previous or empty)
+  // Initial selected retentions (defaulting to saved retentions)
   const [retainedPlayerIds, setRetainedPlayerIds] = useState<string[]>(
     career.squadPlayerIds.length > 0 ? career.squadPlayerIds : []
   );
 
-  // Standard retention price deduction brackets
-  const RETENTION_BRACKETS = [18.0, 14.0, 11.0, 18.0, 14.0]; // Cr
+  const computePurse = (ids: string[]) => {
+    const deduction = ids.reduce((sum, _, index) => sum + (RETENTION_BRACKETS[index] || 10.0), 0);
+    return {
+      deduction,
+      remaining: Math.max(0, Number((franchise.startingPurseCr - deduction).toFixed(2))),
+    };
+  };
 
-  // Calculate total deduction based on count of retentions
-  const totalDeductionCr = retainedPlayerIds.reduce((sum, _, index) => {
-    return sum + (RETENTION_BRACKETS[index] || 10.0);
-  }, 0);
-
-  const remainingPurseCr = Math.max(0, Number((franchise.startingPurseCr - totalDeductionCr).toFixed(2)));
+  const { deduction: totalDeductionCr, remaining: remainingPurseCr } = computePurse(retainedPlayerIds);
   const rtmCards = retainedPlayerIds.length >= 5 ? 1 : 2;
 
   const togglePlayer = (player: Player) => {
+    let nextIds: string[];
     if (retainedPlayerIds.includes(player.id)) {
-      setRetainedPlayerIds(retainedPlayerIds.filter(id => id !== player.id));
+      nextIds = retainedPlayerIds.filter(id => id !== player.id);
     } else {
-      if (retainedPlayerIds.length >= 5) {
-        return; // Max 5 retentions allowed
-      }
-      setRetainedPlayerIds([...retainedPlayerIds, player.id]);
+      if (retainedPlayerIds.length >= 5) return; // Max 5 retentions allowed
+      nextIds = [...retainedPlayerIds, player.id];
+    }
+    setRetainedPlayerIds(nextIds);
+    if (onAutoSaveRetentions) {
+      const { remaining } = computePurse(nextIds);
+      onAutoSaveRetentions(nextIds, remaining);
     }
   };
 
@@ -60,14 +70,17 @@ export const RetentionScreen: React.FC<RetentionScreenProps> = ({
     <div className="flex-1 flex flex-col bg-[#0C1425] text-white">
       {/* Retention Header Tracker */}
       <div className="p-3.5 bg-[#121E36] border-b border-[#1E2D4A] space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
-              PRE-AUCTION RETENTIONS
-            </span>
-            <h2 className="text-base font-bold text-white">{franchise.name} Squad</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <FranchiseLogo franchiseId={franchise.id} size={40} className="rounded-xl" />
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
+                PRE-AUCTION RETENTIONS
+              </span>
+              <h2 className="text-base font-bold text-white truncate">{franchise.name} Squad</h2>
+            </div>
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0">
             <span className="text-[10px] text-slate-400 block uppercase">Auction Purse Remaining</span>
             <span className="font-mono text-base font-black text-emerald-400">
               ₹{remainingPurseCr.toFixed(1)} Cr
@@ -108,7 +121,7 @@ export const RetentionScreen: React.FC<RetentionScreenProps> = ({
       {/* Original Players List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">
-          Select Players to Retain (Tap to toggle)
+          Select Players to Retain (Tap to toggle · Auto-saved)
         </h3>
 
         {originalSquad.map(player => {
@@ -123,30 +136,22 @@ export const RetentionScreen: React.FC<RetentionScreenProps> = ({
               className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                 isRetained
                   ? 'bg-[#121E36] border-[#F59E0B] shadow-[0_0_12px_rgba(245,158,11,0.2)]'
-                  : 'bg-[#0E182D] border-[#1E2D4A] hover:border-slate-500 opacity-80'
+                  : 'bg-[#0E182D] border-[#1E2D4A] hover:border-slate-500 opacity-85'
               }`}
             >
               {/* Player Info */}
               <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className="w-10 h-10 rounded-full border flex items-center justify-center font-bold text-xs text-white shrink-0"
-                  style={{
-                    backgroundColor: `${franchise.primaryColor}30`,
-                    borderColor: franchise.primaryColor,
-                  }}
-                >
-                  {player.shortName.charAt(0)}
-                </div>
+                <PlayerAvatar player={player} size={42} jerseyColor={franchise.primaryColor} showRoleBadge={false} />
 
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h4 className="font-bold text-sm text-white truncate">{player.name}</h4>
                     <span className="text-[10px] font-bold text-slate-400 px-1 rounded bg-[#080E1A]">
-                      {player.nationality}
+                      {player.country || 'N/A'}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300">
-                    {player.primaryRole} · {player.age} yrs
+                    {player.primaryRole}{player.age ? ` · ${player.age} yrs` : ''}
                   </p>
                   {isRetained && (
                     <span className="text-[10px] font-bold text-amber-400 mt-0.5 block">
@@ -185,13 +190,13 @@ export const RetentionScreen: React.FC<RetentionScreenProps> = ({
           onClick={onBack}
           className="flex-1 py-3 rounded-xl bg-[#121E36] hover:bg-[#1A2846] border border-[#1E2D4A] font-bold text-xs uppercase tracking-wider text-slate-300"
         >
-          Cancel
+          Back
         </button>
         <button
           onClick={handleConfirm}
           className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-[#FBBF24] via-[#F59E0B] to-[#D97706] font-bold text-xs uppercase tracking-wider text-slate-950 shadow-md active:scale-[0.98]"
         >
-          Confirm {retainedPlayerIds.length} Retentions
+          Confirm {retainedPlayerIds.length} Retentions & Enter Auction
         </button>
       </div>
     </div>

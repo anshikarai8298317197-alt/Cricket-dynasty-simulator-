@@ -36,6 +36,14 @@ export class SeededPRNG {
   chance(percentage: number): boolean {
     return this.next() * 100 < percentage;
   }
+
+  getState(): number {
+    return this.seed;
+  }
+
+  setState(seed: number): void {
+    this.seed = seed >>> 0;
+  }
 }
 
 export interface MatchSimulationConfig {
@@ -282,14 +290,31 @@ export class CricketMatchEngine {
       isOut: false,
     }));
 
-    // Identify bowling pool
+    // Identify bowling pool (supports 0..11 specialist bowlers; pad up to 5 options with top XI part-timers so 20 overs always complete under the 4-over cap)
     const bowlingPool = bowlingXi.filter(
       p =>
         p.primaryRole.includes('Bowler') ||
         p.primaryRole.includes('All-rounder') ||
+        p.primaryRole.includes('Specialist') ||
         (p.secondaryRole && (p.secondaryRole.includes('Bowler') || p.secondaryRole.includes('All-rounder')))
     );
-    const eligibleBowlers = bowlingPool.length >= 5 ? bowlingPool : bowlingXi.slice(4, 11);
+    let eligibleBowlers: Player[];
+    if (bowlingPool.length >= 5) {
+      eligibleBowlers = bowlingPool;
+    } else {
+      const partTimers = bowlingXi
+        .filter(p => !bowlingPool.some(bp => bp.id === p.id))
+        .sort(
+          (a, b) =>
+            (b.attributes?.bowling || b.paceBowling?.control || b.spinBowling?.control || 30) -
+            (a.attributes?.bowling || a.paceBowling?.control || a.spinBowling?.control || 30)
+        );
+      const needed = Math.max(0, 5 - bowlingPool.length);
+      eligibleBowlers = [...bowlingPool, ...partTimers.slice(0, needed)];
+      if (eligibleBowlers.length === 0) {
+        eligibleBowlers = bowlingXi.slice(0, Math.min(5, bowlingXi.length));
+      }
+    }
 
     // Initialize Bowlers scorecard records
     const bowlersMap: Record<string, BowlerInningsRecord> = {};
@@ -1376,12 +1401,12 @@ export class LiveMatchSession {
       };
     });
 
-    // Opening bowler
+    // Opening bowler (safe fallback when 0 specialists are selected)
     const bowlingPool = bowlingXi.filter(
-      p => p.primaryRole.includes('Bowler') || p.primaryRole.includes('All-rounder')
+      p => p.primaryRole.includes('Bowler') || p.primaryRole.includes('All-rounder') || p.primaryRole.includes('Specialist')
     );
-    const eligible = bowlingPool.length > 0 ? bowlingPool : bowlingXi.slice(4);
-    const openingBowler = eligible[0] || bowlingXi[4];
+    const eligible = bowlingPool.length > 0 ? bowlingPool : bowlingXi;
+    const openingBowler = eligible[0] || bowlingXi[0];
 
     return {
       inningsNumber,
@@ -1411,6 +1436,62 @@ export class LiveMatchSession {
     };
   }
 
+  private ensureBowlerRecord(innings: LiveInningsState, bowler: Player): BowlerInningsRecord {
+    if (!innings.bowlersMap) {
+      innings.bowlersMap = {};
+    }
+    if (!innings.bowlersMap[bowler.id]) {
+      innings.bowlersMap[bowler.id] = {
+        playerId: bowler.id,
+        playerName: bowler.name || 'Bowler',
+        bowlingRole: bowler.primaryRole || 'Bowler',
+        overs: 0,
+        ballsRemainder: 0,
+        oversDisplay: '0.0',
+        legalBallsBowled: 0,
+        maidens: 0,
+        runsConceded: 0,
+        wickets: 0,
+        economy: 0,
+        dots: 0,
+        wides: 0,
+        noBalls: 0,
+      };
+    }
+    return innings.bowlersMap[bowler.id];
+  }
+
+  private ensureBatterRecord(innings: LiveInningsState, batter: Player, idx: number): BatterInningsRecord {
+    if (!Array.isArray(innings.batters)) {
+      innings.batters = [];
+    }
+    const existingByIdx = innings.batters[idx];
+    if (existingByIdx && existingByIdx.playerId === batter.id) {
+      return existingByIdx;
+    }
+    const existingById = innings.batters.find(b => b.playerId === batter.id);
+    if (existingById) {
+      return existingById;
+    }
+    const created: BatterInningsRecord = {
+      playerId: batter.id,
+      playerName: batter.name || `Batter ${idx + 1}`,
+      battingPosition: idx + 1,
+      runs: 0,
+      balls: 0,
+      fours: 0,
+      sixes: 0,
+      strikeRate: 0,
+      isOut: false,
+    };
+    if (idx >= 0 && idx < innings.batters.length) {
+      innings.batters[idx] = created;
+    } else {
+      innings.batters.push(created);
+    }
+    return created;
+  }
+
   /**
    * Simulates exactly one live delivery based on active state and tactics
    */
@@ -1437,20 +1518,53 @@ export class LiveMatchSession {
       );
     }
 
+    if (this.currentInningsNumber === 2 && !this.innings2) {
+      this.target = this.target ?? this.innings1.totalRuns + 1;
+      this.innings2 = this.createInitialInningsState(
+        2,
+        this.teamBowlingFirstId,
+        this.teamBattingFirstId,
+        this.bowlingFirstXi,
+        this.battingFirstXi,
+        this.target
+      );
+    }
+
     const currentInnings = this.currentInningsNumber === 1 ? this.innings1 : this.innings2!;
     const battingXi = this.currentInningsNumber === 1 ? this.battingFirstXi : this.bowlingFirstXi;
     const bowlingXi = this.currentInningsNumber === 1 ? this.bowlingFirstXi : this.battingFirstXi;
 
-    // Check if over needs new bowler
-    if (currentInnings.legalBallsInCurrentOver === 0 && currentInnings.currentOverBalls.length === 0) {
-      currentInnings.currentBowler = this.pickNextBowler(currentInnings, bowlingXi);
+    if (!battingXi.length || !bowlingXi.length) {
+      return null;
     }
 
-    const striker = battingXi[currentInnings.activeStrikerIdx] || battingXi[0];
-    const nonStriker = battingXi[currentInnings.activeNonStrikerIdx] || battingXi[1];
-    const bowler = currentInnings.currentBowler;
-    const bowlerRecord = currentInnings.bowlersMap[bowler.id];
-    const strikerRecord = currentInnings.batters[currentInnings.activeStrikerIdx];
+    // Check if over needs new bowler or currentBowler was lost/invalid across hydration
+    if (
+      (currentInnings.legalBallsInCurrentOver === 0 && currentInnings.currentOverBalls.length === 0) ||
+      !currentInnings.currentBowler ||
+      !currentInnings.currentBowler.id
+    ) {
+      currentInnings.currentBowler = this.pickNextBowler(currentInnings, bowlingXi) || bowlingXi[0];
+    }
+
+    const strikerIdx = Math.min(Math.max(0, currentInnings.activeStrikerIdx), battingXi.length - 1);
+    const fallbackNonStrikerIdx = battingXi.length > 1 ? (strikerIdx === 0 ? 1 : 0) : 0;
+    const nonStrikerIdx =
+      currentInnings.activeNonStrikerIdx >= 0 && currentInnings.activeNonStrikerIdx < battingXi.length
+        ? currentInnings.activeNonStrikerIdx
+        : fallbackNonStrikerIdx;
+
+    currentInnings.activeStrikerIdx = strikerIdx;
+    currentInnings.activeNonStrikerIdx = nonStrikerIdx;
+
+    const striker = battingXi[strikerIdx] || battingXi[0];
+    const nonStriker = battingXi[nonStrikerIdx] || battingXi[1] || battingXi[0];
+    const bowler = currentInnings.currentBowler || bowlingXi[0];
+    currentInnings.currentBowler = bowler;
+
+    const bowlerRecord = this.ensureBowlerRecord(currentInnings, bowler);
+    const strikerRecord = this.ensureBatterRecord(currentInnings, striker, strikerIdx);
+    const nonStrikerRecord = this.ensureBatterRecord(currentInnings, nonStriker, nonStrikerIdx);
 
     const isUserBatting = currentInnings.battingFranchiseId === this.userFranchiseId;
     const isUserBowling = currentInnings.bowlingFranchiseId === this.userFranchiseId;
@@ -1473,7 +1587,7 @@ export class LiveMatchSession {
         isLegalBall: false,
         bowlerId: bowler.id,
         bowlerName: bowler.name,
-        bowlerStyle: bowler.primaryRole.includes('Fast') ? 'RFM' : 'SLA',
+        bowlerStyle: (bowler.primaryRole || '').includes('Fast') ? 'RFM' : 'SLA',
         bowlerStamina: Math.round(this.playerStamina[bowler.id] || 90),
         bowlerOversDisplay: `${Math.floor(bowlerRecord.legalBallsBowled / 6)}.${bowlerRecord.legalBallsBowled % 6}`,
         bowlerMaidens: bowlerRecord.maidens,
@@ -1483,7 +1597,7 @@ export class LiveMatchSession {
         strikerId: striker.id,
         strikerName: striker.name,
         strikerNumber: currentInnings.activeStrikerIdx + 1,
-        strikerHand: striker.battingHand,
+        strikerHand: striker.battingHand || 'Right Hand',
         strikerRuns: strikerRecord.runs,
         strikerBalls: strikerRecord.balls,
         strikerFours: strikerRecord.fours,
@@ -1491,9 +1605,9 @@ export class LiveMatchSession {
         nonStrikerId: nonStriker.id,
         nonStrikerName: nonStriker.name,
         nonStrikerNumber: currentInnings.activeNonStrikerIdx + 1,
-        nonStrikerHand: nonStriker.battingHand,
-        nonStrikerRuns: currentInnings.batters[currentInnings.activeNonStrikerIdx]?.runs || 0,
-        nonStrikerBalls: currentInnings.batters[currentInnings.activeNonStrikerIdx]?.balls || 0,
+        nonStrikerHand: nonStriker.battingHand || 'Right Hand',
+        nonStrikerRuns: nonStrikerRecord.runs || 0,
+        nonStrikerBalls: nonStrikerRecord.balls || 0,
         runsBat: 0,
         extrasType: 'WIDE',
         extrasRuns: 1,
@@ -1616,7 +1730,7 @@ export class LiveMatchSession {
       isLegalBall: true,
       bowlerId: bowler.id,
       bowlerName: bowler.name,
-      bowlerStyle: bowler.primaryRole.includes('Fast') ? 'RFM' : 'SLA',
+      bowlerStyle: (bowler.primaryRole || '').includes('Fast') ? 'RFM' : 'SLA',
       bowlerStamina: Math.round(this.playerStamina[bowler.id] || 85),
       bowlerOversDisplay: `${Math.floor(bowlerRecord.legalBallsBowled / 6)}.${bowlerRecord.legalBallsBowled % 6}`,
       bowlerMaidens: bowlerRecord.maidens,
@@ -1626,7 +1740,7 @@ export class LiveMatchSession {
       strikerId: striker.id,
       strikerName: striker.name,
       strikerNumber: currentInnings.activeStrikerIdx + 1,
-      strikerHand: striker.battingHand,
+      strikerHand: striker.battingHand || 'Right Hand',
       strikerRuns: strikerRecord.runs,
       strikerBalls: strikerRecord.balls,
       strikerFours: strikerRecord.fours,
@@ -1634,9 +1748,9 @@ export class LiveMatchSession {
       nonStrikerId: nonStriker.id,
       nonStrikerName: nonStriker.name,
       nonStrikerNumber: currentInnings.activeNonStrikerIdx + 1,
-      nonStrikerHand: nonStriker.battingHand,
-      nonStrikerRuns: currentInnings.batters[currentInnings.activeNonStrikerIdx]?.runs || 0,
-      nonStrikerBalls: currentInnings.batters[currentInnings.activeNonStrikerIdx]?.balls || 0,
+      nonStrikerHand: nonStriker.battingHand || 'Right Hand',
+      nonStrikerRuns: nonStrikerRecord.runs || 0,
+      nonStrikerBalls: nonStrikerRecord.balls || 0,
       runsBat: runs,
       extrasRuns: 0,
       totalRuns: runs,
@@ -1723,24 +1837,53 @@ export class LiveMatchSession {
   }
 
   private pickNextBowler(innings: LiveInningsState, bowlingXi: Player[]): Player {
-    const eligible = bowlingXi.filter(b => {
-      const rec = innings.bowlersMap[b.id];
+    const specialists = bowlingXi.filter(b => {
+      const role = b.primaryRole || '';
+      return role.includes('Bowler') || role.includes('All-rounder') || role.includes('Specialist');
+    });
+
+    const candidatePool = (() => {
+      if (specialists.length >= 5) return specialists;
+      const partTimers = bowlingXi
+        .filter(p => !specialists.some(sp => sp.id === p.id))
+        .sort(
+          (a, b) =>
+            (b.attributes?.bowling || b.paceBowling?.control || b.spinBowling?.control || 30) -
+            (a.attributes?.bowling || a.paceBowling?.control || a.spinBowling?.control || 30)
+        );
+      const needed = Math.max(0, 5 - specialists.length);
+      const combined = [...specialists, ...partTimers.slice(0, needed)];
+      return combined.length > 0 ? combined : bowlingXi;
+    })();
+
+    const bowlersMap = innings.bowlersMap || {};
+    const eligible = candidatePool.filter(b => {
+      const rec = bowlersMap[b.id];
       const under4Overs = !rec || rec.legalBallsBowled < 24;
       const notConsecutive = b.id !== innings.previousBowlerId;
       return under4Overs && notConsecutive;
     });
 
     if (eligible.length === 0) {
+      const anyUnder4 = bowlingXi.filter(b => {
+        const rec = bowlersMap[b.id];
+        return (!rec || rec.legalBallsBowled < 24) && b.id !== innings.previousBowlerId;
+      });
+      if (anyUnder4.length > 0) return anyUnder4[0];
       return bowlingXi.find(b => b.id !== innings.previousBowlerId) || bowlingXi[0];
     }
 
     // Prioritize high stamina and death bowlers in overs 16+
     if (innings.currentOverNumber >= 16) {
-      const death = eligible.find(b => b.primaryRole.includes('Death') || b.primaryRole.includes('Fast'));
+      const death = eligible.find(b => {
+        const role = b.primaryRole || '';
+        return role.includes('Death') || role.includes('Fast');
+      });
       if (death) return death;
     }
 
-    return eligible[Math.floor(this.rng.next() * eligible.length)];
+    const pickIdx = Math.min(eligible.length - 1, Math.floor(this.rng.next() * eligible.length));
+    return eligible[pickIdx] || bowlingXi[0];
   }
 
   private computeDeliveryPhysics(params: {
@@ -1763,8 +1906,8 @@ export class LiveMatchSession {
     const isPace = !!bowler.paceBowling;
 
     // Skills
-    const batTiming = striker.batting.timing;
-    const batPower = striker.batting.power;
+    const batTiming = striker.batting?.timing ?? striker.attributes?.batting ?? 72;
+    const batPower = striker.batting?.power ?? striker.attributes?.batting ?? 72;
     const bowlSkill = isPace
       ? (bowler.paceBowling?.speed || 80) * 0.5 + (bowler.paceBowling?.control || 80) * 0.5
       : (bowler.spinBowling?.turn || 80) * 0.5 + (bowler.spinBowling?.control || 80) * 0.5;
@@ -1885,15 +2028,18 @@ export class LiveMatchSession {
   }
 
   private checkInningsCompletion(currentInnings: LiveInningsState) {
+    const battingXi = this.currentInningsNumber === 1 ? this.battingFirstXi : this.bowlingFirstXi;
+    const maxWickets = Math.min(10, Math.max(1, battingXi.length - 1));
+
     if (this.currentInningsNumber === 1) {
-      if (currentInnings.totalWickets >= 10 || currentInnings.currentOverNumber >= 20) {
+      if (currentInnings.totalWickets >= maxWickets || currentInnings.currentOverNumber >= 20) {
         this.status = 'INNINGS_BREAK';
         this.target = currentInnings.totalRuns + 1;
       }
     } else {
       // Innings 2 completion
       const targetMet = this.target && currentInnings.totalRuns >= this.target;
-      const allOut = currentInnings.totalWickets >= 10;
+      const allOut = currentInnings.totalWickets >= maxWickets;
       const oversDone = currentInnings.currentOverNumber >= 20;
 
       if (targetMet || allOut || oversDone) {
@@ -1905,7 +2051,16 @@ export class LiveMatchSession {
 
   private finalizeMatchResult() {
     const inn1 = this.innings1;
-    const inn2 = this.innings2!;
+    const inn2 =
+      this.innings2 ||
+      this.createInitialInningsState(
+        2,
+        this.teamBowlingFirstId,
+        this.teamBattingFirstId,
+        this.bowlingFirstXi,
+        this.battingFirstXi,
+        this.target ?? inn1.totalRuns + 1
+      );
 
     let winnerId = '';
     let loserId = '';
@@ -1961,8 +2116,17 @@ export class LiveMatchSession {
   }
 
   public fastForwardToEnd(): MatchResultDetails {
-    while (this.status !== 'COMPLETED') {
-      this.simulateNextDelivery();
+    let safetyIterations = 0;
+    while (this.status !== 'COMPLETED' && safetyIterations < 500) {
+      safetyIterations += 1;
+      const ball = this.simulateNextDelivery();
+      if (!ball) {
+        break;
+      }
+    }
+    if (!this.completedResultDetails) {
+      this.status = 'COMPLETED';
+      this.finalizeMatchResult();
     }
     return this.completedResultDetails!;
   }
@@ -2000,6 +2164,185 @@ export class LiveMatchSession {
       target: this.target,
       completedResult: this.completedResultDetails,
     };
+  }
+
+  /**
+   * Serialize full live match state for exact-ball IndexedDB & LocalStorage persistence
+   */
+  public serializeState(extra?: {
+    careerId?: string;
+    tactics?: any;
+    impactUsed?: boolean;
+    selectedSubPlayer?: string | null;
+    currentDelivery?: BallEvent | null;
+  }) {
+    const activeInn = this.currentInningsNumber === 1 ? this.innings1 : this.innings2 || this.innings1;
+    const latestBall =
+      extra?.currentDelivery ||
+      activeInn.allBalls[activeInn.allBalls.length - 1] ||
+      this.innings1.allBalls[this.innings1.allBalls.length - 1] ||
+      null;
+
+    return {
+      matchId: this.matchId,
+      fixtureId: this.fixtureId,
+      careerId: extra?.careerId,
+      homeFranchiseId: this.homeFranchiseId,
+      awayFranchiseId: this.awayFranchiseId,
+      userFranchiseId: this.userFranchiseId,
+      difficulty: this.difficulty,
+      pitchCondition: this.pitchCondition,
+      venue: this.venue,
+      tossWinnerId: this.tossWinnerId,
+      tossDecision: this.tossDecision,
+      teamBattingFirstId: this.teamBattingFirstId,
+      teamBowlingFirstId: this.teamBowlingFirstId,
+      homePlayingXiIds: this.homePlayingXi.map(p => p.id),
+      awayPlayingXiIds: this.awayPlayingXi.map(p => p.id),
+      currentInnings: this.currentInningsNumber,
+      status: this.status,
+      target: this.target,
+      innings1: this.innings1,
+      innings2: this.innings2,
+      currentDelivery: latestBall,
+      tactics: extra?.tactics,
+      impactUsed: extra?.impactUsed,
+      selectedSubPlayer: extra?.selectedSubPlayer,
+      playerForm: { ...this.playerForm },
+      playerStamina: { ...this.playerStamina },
+      playerFatigue: { ...this.playerFatigue },
+      seedState: this.rng.getState(),
+      lastSavedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Re-hydrate an interrupted LiveMatchSession cleanly at the exact saved delivery without duplicating balls
+   */
+  public static hydrateFromState(
+    config: MatchSimulationConfig & { difficulty?: 'EASY' | 'MEDIUM' | 'HARD'; userFranchiseId?: string },
+    saved: any
+  ): LiveMatchSession {
+    const session = new LiveMatchSession(config);
+    if (!saved) return session;
+
+    if (typeof saved.seedState === 'number') {
+      session.rng.setState(saved.seedState);
+    }
+    if (saved.tossWinnerId) session.tossWinnerId = saved.tossWinnerId;
+    if (saved.tossDecision) session.tossDecision = saved.tossDecision;
+    if (saved.teamBattingFirstId) session.teamBattingFirstId = saved.teamBattingFirstId;
+    if (saved.teamBowlingFirstId) session.teamBowlingFirstId = saved.teamBowlingFirstId;
+
+    session.battingFirstXi =
+      session.teamBattingFirstId === session.homeFranchiseId ? session.homePlayingXi : session.awayPlayingXi;
+    session.bowlingFirstXi =
+      session.teamBowlingFirstId === session.homeFranchiseId ? session.homePlayingXi : session.awayPlayingXi;
+
+    if (saved.playerForm) session.playerForm = { ...saved.playerForm };
+    if (saved.playerStamina) session.playerStamina = { ...saved.playerStamina };
+    if (saved.playerFatigue) session.playerFatigue = { ...saved.playerFatigue };
+    if (typeof saved.target === 'number') session.target = saved.target;
+    if (saved.currentInnings === 1 || saved.currentInnings === 2) {
+      session.currentInningsNumber = saved.currentInnings;
+    }
+    if (saved.status) session.status = saved.status;
+
+    const hydrateInnings = (savedInnings: any, battingXi: Player[], bowlingXi: Player[]): LiveInningsState => {
+      if (!savedInnings) return savedInnings;
+      const hydratedBowlersMap: Record<string, BowlerInningsRecord> = {
+        ...(savedInnings.bowlersMap || {}),
+      };
+      bowlingXi.forEach(p => {
+        if (!hydratedBowlersMap[p.id]) {
+          hydratedBowlersMap[p.id] = {
+            playerId: p.id,
+            playerName: p.name || 'Bowler',
+            bowlingRole: p.primaryRole || 'Bowler',
+            overs: 0,
+            ballsRemainder: 0,
+            oversDisplay: '0.0',
+            legalBallsBowled: 0,
+            maidens: 0,
+            runsConceded: 0,
+            wickets: 0,
+            economy: 0,
+            dots: 0,
+            wides: 0,
+            noBalls: 0,
+          };
+        }
+      });
+
+      const curId = savedInnings.currentBowler?.id;
+      const matchedBowler =
+        bowlingXi.find(p => p.id === curId) ||
+        bowlingXi[4] ||
+        bowlingXi[0] ||
+        savedInnings.currentBowler;
+
+      if (matchedBowler && matchedBowler.id && !hydratedBowlersMap[matchedBowler.id]) {
+        hydratedBowlersMap[matchedBowler.id] = {
+          playerId: matchedBowler.id,
+          playerName: matchedBowler.name || 'Bowler',
+          bowlingRole: matchedBowler.primaryRole || 'Bowler',
+          overs: 0,
+          ballsRemainder: 0,
+          oversDisplay: '0.0',
+          legalBallsBowled: 0,
+          maidens: 0,
+          runsConceded: 0,
+          wickets: 0,
+          economy: 0,
+          dots: 0,
+          wides: 0,
+          noBalls: 0,
+        };
+      }
+
+      const existingBatters: BatterInningsRecord[] = Array.isArray(savedInnings.batters)
+        ? [...savedInnings.batters]
+        : [];
+      battingXi.forEach((p, idx) => {
+        if (!existingBatters[idx]) {
+          existingBatters[idx] = {
+            playerId: p.id,
+            playerName: p.name || `Batter ${idx + 1}`,
+            battingPosition: idx + 1,
+            runs: 0,
+            balls: 0,
+            fours: 0,
+            sixes: 0,
+            strikeRate: 0,
+            isOut: false,
+          };
+        }
+      });
+
+      return {
+        ...savedInnings,
+        batters: existingBatters,
+        bowlersMap: hydratedBowlersMap,
+        currentBowler: matchedBowler,
+        fallOfWickets: Array.isArray(savedInnings.fallOfWickets) ? savedInnings.fallOfWickets : [],
+        allBalls: Array.isArray(savedInnings.allBalls) ? savedInnings.allBalls : [],
+        overSummaries: Array.isArray(savedInnings.overSummaries) ? savedInnings.overSummaries : [],
+        currentOverBalls: Array.isArray(savedInnings.currentOverBalls) ? savedInnings.currentOverBalls : [],
+        extras: savedInnings.extras || { total: 0, wides: 0, noBalls: 0, byes: 0, legByes: 0 },
+      };
+    };
+
+    if (saved.innings1) {
+      session.innings1 = hydrateInnings(saved.innings1, session.battingFirstXi, session.bowlingFirstXi);
+    }
+    if (saved.innings2) {
+      session.innings2 = hydrateInnings(saved.innings2, session.bowlingFirstXi, session.battingFirstXi);
+    }
+    if (session.status === 'COMPLETED' && session.innings2) {
+      session.finalizeMatchResult();
+    }
+
+    return session;
   }
 }
 

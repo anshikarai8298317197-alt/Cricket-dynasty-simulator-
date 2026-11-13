@@ -6,9 +6,10 @@ import React, { useState } from 'react';
 import { TournamentState, Fixture, PlayerTournamentStats } from '../types/tournament';
 import { CareerSave } from '../types/career';
 import { Player } from '../types/player';
-import { FRANCHISES } from '../data/franchises';
+import { getGlobalTeamById } from '../data/globalLeagues';
 import { TournamentEngine } from '../services/tournamentEngine';
 import { FranchiseLogo } from './FranchiseLogo';
+import { PlayoffBracketView } from './PlayoffBracketView';
 import {
   Trophy,
   Calendar,
@@ -33,11 +34,12 @@ interface TournamentHubScreenProps {
   allPlayers: Player[];
   onUpdateTournament: (updated: TournamentState) => void;
   onPlayLiveMatch: (fixture: Fixture) => void;
+  onOpenChampionsLeague?: () => void;
   onOpenQAModal: () => void;
   onBack: () => void;
 }
 
-type TabType = 'TABLE' | 'FIXTURES' | 'LEADERBOARDS';
+type TabType = 'TABLE' | 'BRACKET' | 'FIXTURES' | 'LEADERBOARDS';
 type LeaderboardCategory = 'BATTING' | 'BOWLING' | 'FIELDING' | 'AWARDS';
 
 export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
@@ -46,11 +48,15 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
   allPlayers,
   onUpdateTournament,
   onPlayLiveMatch,
+  onOpenChampionsLeague,
   onOpenQAModal,
   onBack,
 }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('TABLE');
-  const [selectedRound, setSelectedRound] = useState<number>(tournament.currentRound || 1);
+  const iplLeagueDone = tournament.fixtures
+    .filter(f => f.playoffStage === 'NONE')
+    .every(f => f.isCompleted);
+  const [activeTab, setActiveTab] = useState<TabType>(iplLeagueDone ? 'BRACKET' : 'TABLE');
+  const [selectedRound, setSelectedRound] = useState<number>(iplLeagueDone ? 15 : (tournament.currentRound || 1));
   const [filterMyTeamOnly, setFilterMyTeamOnly] = useState(false);
 
   // Leaderboard sub-tabs
@@ -95,6 +101,28 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
       currentTourn = TournamentEngine.recordMatchResult(currentTourn, result);
     });
 
+    onUpdateTournament(currentTourn);
+  };
+
+  const handleSimulateRemainingPlayoffs = () => {
+    let currentTourn = tournament;
+    for (let guard = 0; guard < 10; guard++) {
+      const nextPlayoff = currentTourn.fixtures.find(
+        f =>
+          f.playoffStage !== 'NONE' &&
+          !f.isCompleted &&
+          !f.homeFranchiseId.startsWith('TBD') &&
+          !f.awayFranchiseId.startsWith('TBD')
+      );
+      if (!nextPlayoff) break;
+      const result = TournamentEngine.simulateAiFixture(
+        nextPlayoff,
+        allPlayers,
+        currentTourn,
+        career.allFranchiseSquads
+      );
+      currentTourn = TournamentEngine.recordMatchResult(currentTourn, result);
+    }
     onUpdateTournament(currentTourn);
   };
 
@@ -217,24 +245,81 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
         </button>
       </div>
 
-      {/* Primary Sub-Tabs (TABLE / FIXTURES / LEADERBOARDS) */}
-      <div className="bg-[#0F1A30] border-b border-slate-800 px-3 py-2 flex items-center space-x-2">
-        {(['TABLE', 'FIXTURES', 'LEADERBOARDS'] as TabType[]).map(tab => (
+      {/* Primary Sub-Tabs (TABLE / BRACKET / FIXTURES / LEADERBOARDS) */}
+      <div className="bg-[#0F1A30] border-b border-slate-800 px-3 py-2 flex items-center space-x-1.5">
+        {(['TABLE', 'BRACKET', 'FIXTURES', 'LEADERBOARDS'] as TabType[]).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex-1 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
               activeTab === tab
                 ? 'bg-amber-500 text-slate-950 font-black shadow'
                 : 'bg-slate-900/50 text-slate-400 hover:text-white'
             }`}
           >
-            {tab === 'TABLE' ? 'Standings' : tab === 'FIXTURES' ? 'Fixtures & Calendar' : 'Leaderboards'}
+            {tab === 'TABLE'
+              ? 'Table'
+              : tab === 'BRACKET'
+              ? 'Playoffs'
+              : tab === 'FIXTURES'
+              ? 'Fixtures'
+              : 'Leaders'}
           </button>
         ))}
       </div>
 
       <div className="p-4 max-w-md mx-auto w-full space-y-4">
+        {/* Phase Action Banner: Seeded Playoffs or IPL Complete -> GCL T20 */}
+        {tournament.playoffs?.championFranchiseId ? (
+          <div className="p-4 rounded-2xl card-3d-gold space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 block">
+                  IPL {tournament.seasonYear || career.currentGameYear || 2026} Complete
+                </span>
+                <h3 className="text-sm font-black text-white">
+                  {getGlobalTeamById(tournament.playoffs.championFranchiseId).name} Won the Trophy!
+                </h3>
+              </div>
+              <Trophy className="w-7 h-7 text-amber-300 shrink-0" />
+            </div>
+            <div className="flex gap-2">
+              {onOpenChampionsLeague && (
+                <button
+                  onClick={onOpenChampionsLeague}
+                  className="flex-1 py-2.5 px-3 rounded-xl btn-game-gold text-[11px] uppercase tracking-wider cursor-pointer"
+                >
+                  Enter Champions League T20
+                </button>
+              )}
+              <button
+                onClick={onBack}
+                className="py-2.5 px-3 rounded-xl btn-game-dark text-[11px] font-bold text-slate-200 cursor-pointer"
+              >
+                Home Hub
+              </button>
+            </div>
+          </div>
+        ) : iplLeagueDone ? (
+          <div className="p-3.5 rounded-2xl card-3d-elevated border-amber-500/40 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-black uppercase text-amber-400 block">
+                70/70 League Matches Done
+              </span>
+              <p className="text-xs font-bold text-white">
+                Qualifier 1, Eliminator &amp; Final are ready!
+              </p>
+            </div>
+            {activeTab !== 'BRACKET' && (
+              <button
+                onClick={() => setActiveTab('BRACKET')}
+                className="px-3 py-2 rounded-xl btn-game-gold text-[11px] uppercase shrink-0 cursor-pointer"
+              >
+                View Playoffs
+              </button>
+            )}
+          </div>
+        ) : null}
         {/* ===================== TAB 1: POINTS TABLE ===================== */}
         {activeTab === 'TABLE' && (
           <div className="space-y-3">
@@ -269,7 +354,7 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
               {/* Table Rows with Official Franchise Logos */}
               <div className="divide-y divide-slate-800/60">
                 {tournament.pointsTable.map((entry, idx) => {
-                  const franchise = FRANCHISES.find(f => f.id === entry.franchiseId) || FRANCHISES[0];
+                  const franchise = getGlobalTeamById(entry.franchiseId);
                   const isUserTeam = entry.franchiseId === career.franchiseId;
                   const isPlayoffSpot = idx < 4;
 
@@ -324,6 +409,19 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
               <span>All-out overs credited as full 20.0</span>
             </div>
           </div>
+        )}
+
+        {/* ===================== TAB: PLAYOFF BRACKET ===================== */}
+        {activeTab === 'BRACKET' && (
+          <PlayoffBracketView
+            mode="PAGE_PLAYOFFS"
+            fixtures={tournament.fixtures.filter(f => f.playoffStage !== 'NONE')}
+            userFranchiseId={career.franchiseId}
+            championFranchiseId={tournament.playoffs?.championFranchiseId}
+            onPlayLive={onPlayLiveMatch}
+            onSimulateFixture={handleSimulateFixture}
+            onSimulateRemainingPlayoffs={handleSimulateRemainingPlayoffs}
+          />
         )}
 
         {/* ===================== TAB 2: FIXTURES & CALENDAR ===================== */}
@@ -382,8 +480,8 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
             {/* Fixture Match Cards */}
             <div className="space-y-2.5">
               {filteredFixtures.map(fixture => {
-                const home = FRANCHISES.find(f => f.id === fixture.homeFranchiseId);
-                const away = FRANCHISES.find(f => f.id === fixture.awayFranchiseId);
+                const home = getGlobalTeamById(fixture.homeFranchiseId);
+                const away = getGlobalTeamById(fixture.awayFranchiseId);
                 const isUserMatch =
                   fixture.homeFranchiseId === career.franchiseId || fixture.awayFranchiseId === career.franchiseId;
 

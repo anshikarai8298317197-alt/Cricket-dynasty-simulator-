@@ -6,6 +6,8 @@ import React, { useState } from 'react';
 import { Trophy, MapPin, Shield, Check, Star, User, ChevronRight } from 'lucide-react';
 import { FRANCHISES } from '../data/franchises';
 import { Franchise } from '../types/franchise';
+import { FranchiseLogo } from './FranchiseLogo';
+import { DbPersistence } from '../services/dbPersistence';
 
 interface FranchiseSelectionScreenProps {
   onBack: () => void;
@@ -16,9 +18,21 @@ export const FranchiseSelectionScreen: React.FC<FranchiseSelectionScreenProps> =
   onBack,
   onSelectFranchise,
 }) => {
-  const [selectedFranchiseId, setSelectedFranchiseId] = useState<string>('RCB');
+  const existingDraft = DbPersistence.getCareerDraft();
+  const [selectedFranchiseId, setSelectedFranchiseId] = useState<string>(existingDraft?.franchiseId || 'RCB');
 
   const selectedFranchise = FRANCHISES.find(f => f.id === selectedFranchiseId) || FRANCHISES[0];
+
+  const handleChooseFranchise = (id: string) => {
+    setSelectedFranchiseId(id);
+    if (existingDraft) {
+      DbPersistence.saveCareerDraft({
+        ...existingDraft,
+        franchiseId: id,
+        updatedAt: Date.now(),
+      });
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-[#0C1425] text-white">
@@ -45,7 +59,7 @@ export const FranchiseSelectionScreen: React.FC<FranchiseSelectionScreenProps> =
           return (
             <div
               key={franchise.id}
-              onClick={() => setSelectedFranchiseId(franchise.id)}
+              onClick={() => handleChooseFranchise(franchise.id)}
               className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden ${
                 isSelected
                   ? 'bg-[#121E36] border-[#F59E0B] shadow-[0_0_20px_rgba(245,158,11,0.25)] scale-[1.01]'
@@ -59,21 +73,13 @@ export const FranchiseSelectionScreen: React.FC<FranchiseSelectionScreenProps> =
               />
 
               <div className="flex items-start justify-between gap-3 mt-1">
-                {/* Logo Badge & Identity */}
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-13 h-13 rounded-2xl border-2 flex items-center justify-center font-black text-lg text-white shadow-lg shrink-0"
-                    style={{
-                      backgroundColor: `${franchise.primaryColor}25`,
-                      borderColor: franchise.primaryColor,
-                    }}
-                  >
-                    {franchise.shortName}
-                  </div>
+                {/* Official Franchise Logo Crest & Identity */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <FranchiseLogo franchiseId={franchise.id} size={48} className="rounded-2xl shadow-lg" />
 
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-white">{franchise.name}</h3>
+                      <h3 className="text-base font-bold text-white truncate">{franchise.name}</h3>
                     </div>
                     <div className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5">
                       <MapPin className="w-3 h-3 text-slate-500" />

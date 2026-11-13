@@ -3,14 +3,25 @@
  * Official IPL 10-Team 14-Match League Format (74 Matches Total)
  */
 
-export type PlayoffStage = 'NONE' | 'QUALIFIER_1' | 'ELIMINATOR' | 'QUALIFIER_2' | 'FINAL';
+export type PlayoffStage =
+  | 'NONE'
+  | 'GROUP_STAGE'
+  | 'QUARTER_FINAL'
+  | 'SEMI_FINAL'
+  | 'QUALIFIER_1'
+  | 'ELIMINATOR'
+  | 'QUALIFIER_2'
+  | 'FINAL';
 
 export interface Fixture {
   fixtureId: string;
-  matchNumber: number; // 1 to 74
+  competitionId?: string;
+  groupName?: string;
+  matchNumber: number; // 1 to N
   roundNumber: number; // 1 to 14 for league, 15 for Playoffs
   playoffStage: PlayoffStage;
   dateStr: string;
+  matchDateIso?: string;
   venue: string;
   
   homeFranchiseId: string;
@@ -138,11 +149,15 @@ export interface TournamentLeaderboards {
 
 export interface TournamentState {
   tournamentId: string;
+  leagueId?: string;
   name: string;
+  country?: string;
   seasonYear: number;
+  startDateIso?: string;
+  endDateIso?: string;
   currentRound: number; // 1 to 15
-  totalLeagueMatches: 70;
-  totalPlayoffMatches: 4;
+  totalLeagueMatches: number;
+  totalPlayoffMatches: number;
   fixtures: Fixture[];
   currentFixtureIndex: number;
   pointsTable: PointsTableEntry[];

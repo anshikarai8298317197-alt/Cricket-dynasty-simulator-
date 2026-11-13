@@ -36,6 +36,10 @@ interface CricketNewsArticle {
 
 interface MainDashboardProps {
   activeCareer: CareerSave | null;
+  hasActiveAuction?: boolean;
+  hasActiveMatch?: boolean;
+  onResumeAuction?: () => void;
+  onResumeMatch?: () => void;
   onContinueCareer: () => void;
   onNewCareer: () => void;
   onLoadCareer: () => void;
@@ -47,6 +51,10 @@ interface MainDashboardProps {
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({
   activeCareer,
+  hasActiveAuction = false,
+  hasActiveMatch = false,
+  onResumeAuction,
+  onResumeMatch,
   onContinueCareer,
   onNewCareer,
   onLoadCareer,
@@ -150,6 +158,36 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
         {/* Primary Action Button Stack (Reference: 3D Beveled Buttons) */}
         <div className="space-y-2.5 max-w-sm mx-auto w-full mb-3">
+          {/* Active Match / Auction Resume Pills (Crash Recovery) */}
+          {activeCareer && (hasActiveMatch || hasActiveAuction) && (
+            <div className="grid grid-cols-1 gap-2">
+              {hasActiveMatch && onResumeMatch && (
+                <button
+                  onClick={onResumeMatch}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 border border-emerald-400/60 flex items-center justify-between text-white shadow-lg active:scale-[0.98]"
+                >
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 animate-pulse text-emerald-200" />
+                    <span className="text-xs font-black uppercase tracking-wider">Resume Saved Live Match</span>
+                  </div>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              )}
+              {hasActiveAuction && onResumeAuction && (
+                <button
+                  onClick={onResumeAuction}
+                  className="w-full py-2.5 px-4 rounded-xl bg-amber-600/90 hover:bg-amber-500 border border-amber-400/60 flex items-center justify-between text-slate-950 shadow-lg active:scale-[0.98]"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    <span className="text-xs font-black uppercase tracking-wider">Resume Saved Auction</span>
+                  </div>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* 1. Continue Career (Prominent 3D Gold Capsule) */}
           {activeCareer ? (
             <button
@@ -157,7 +195,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               className="w-full py-3.5 px-5 rounded-2xl btn-game-gold flex items-center justify-between group active:scale-[0.98] cursor-pointer"
             >
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 rounded-xl bg-slate-950/20 border border-slate-950/30 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-slate-950/25 border border-slate-950/40 flex items-center justify-center shadow-inner">
                   <Play className="w-4 h-4 fill-slate-950 text-slate-950 translate-x-0.5" />
                 </div>
                 <div className="text-left">
@@ -165,7 +203,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
                     Continue Career
                   </span>
                   <span className="text-[11px] font-bold text-slate-900 block opacity-90">
-                    {activeFranchise?.shortName || 'Franchise'} · S{activeCareer.currentSeason} ({activeCareer.name})
+                    {activeFranchise?.shortName || 'Franchise'} · Season {activeCareer.currentSeason} ({activeCareer.currentGameYear || 2026})
+                    {activeCareer.worldSeason?.currentDateIso ? ` · ${activeCareer.worldSeason.currentDateIso}` : ''}
                   </span>
                 </div>
               </div>

@@ -8,6 +8,7 @@ import { Player, PlayerRole, RatingTier } from '../types/player';
 import { PLAYERS_DATABASE } from '../data/players';
 import { FRANCHISES } from '../data/franchises';
 import { PlayerProfileModal } from './PlayerProfileModal';
+import { PlayerAvatar } from './PlayerAvatar';
 
 interface PlayerDatabaseScreenProps {
   onBack: () => void;
@@ -240,21 +241,18 @@ export const PlayerDatabaseScreen: React.FC<PlayerDatabaseScreenProps> = ({
               >
                 {/* Left: Avatar & Info */}
                 <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className="w-11 h-11 rounded-full border flex items-center justify-center font-black text-sm text-white shrink-0 shadow"
-                    style={{
-                      backgroundColor: franchise ? `${franchise.primaryColor}33` : '#1E2D4A',
-                      borderColor: franchise ? franchise.primaryColor : '#475569',
-                    }}
-                  >
-                    {player.shortName.charAt(0)}
-                  </div>
+                  <PlayerAvatar
+                    player={player}
+                    size={44}
+                    jerseyColor={franchise?.primaryColor}
+                    showRoleBadge={false}
+                  />
 
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h3 className="font-bold text-sm text-white truncate">{player.name}</h3>
                       <span className="text-[10px] font-bold text-slate-400 px-1 py-0.2 rounded bg-[#080E1A]">
-                        {player.nationality}
+                        {player.nationality || 'N/A'}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-300 truncate">

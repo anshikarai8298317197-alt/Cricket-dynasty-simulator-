@@ -205,14 +205,20 @@ export const Pitch2DView: React.FC<Pitch2DViewProps> = ({
       </div>
 
       {/* Bowler Avatar (Bowling Team Colors) */}
-      <div className="absolute top-[24%] left-[47%] flex flex-col items-center pointer-events-none z-10 transition-transform duration-300">
+      <div className="absolute top-[23%] left-[47%] flex flex-col items-center pointer-events-none z-10 transition-transform duration-300">
         <div
-          className="w-4 h-4 rounded-full border border-white shadow-md flex items-center justify-center text-[7px] font-black text-white"
-          style={{ backgroundColor: bowlingFranchiseColor }}
+          className="w-5 h-5 rounded-full border-2 border-white shadow-lg flex items-center justify-center overflow-hidden bg-slate-900"
+          style={{ borderColor: bowlingFranchiseColor }}
         >
-          B
+          <svg viewBox="0 0 40 40" className="w-full h-full">
+            <circle cx="20" cy="20" r="19" fill={bowlingFranchiseColor} />
+            {/* Bowler cap & silhouette */}
+            <circle cx="20" cy="15" r="7" fill="#fde047" />
+            <path d="M12 36 C12 26 28 26 28 36 Z" fill="#1e293b" />
+            <circle cx="27" cy="18" r="2.5" fill="#ef4444" stroke="#ffffff" strokeWidth="0.5" />
+          </svg>
         </div>
-        <span className="text-[8px] font-bold text-white/90 bg-black/60 px-1 rounded mt-0.5">
+        <span className="text-[8px] font-black text-white/95 bg-black/75 px-1 py-0.2 rounded mt-0.5 shadow font-mono">
           {bowlerName.split(' ')[0]}
         </span>
       </div>
@@ -220,22 +226,33 @@ export const Pitch2DView: React.FC<Pitch2DViewProps> = ({
       {/* Non-Striker Avatar (Batting Team Colors) */}
       <div className="absolute top-[28%] left-[54%] flex flex-col items-center pointer-events-none z-10">
         <div
-          className="w-3.5 h-3.5 rounded-full border border-white shadow flex items-center justify-center text-[6px] font-black text-white"
-          style={{ backgroundColor: battingFranchiseColor }}
+          className="w-4 h-4 rounded-full border border-white shadow-md flex items-center justify-center overflow-hidden bg-slate-900"
+          style={{ borderColor: battingFranchiseColor }}
         >
-          NS
+          <svg viewBox="0 0 40 40" className="w-full h-full">
+            <circle cx="20" cy="20" r="19" fill={battingFranchiseColor} />
+            <circle cx="20" cy="15" r="7" fill="#fbbf24" />
+            <path d="M13 36 C13 27 27 27 27 36 Z" fill="#0f172a" />
+          </svg>
         </div>
+        <span className="text-[7px] font-bold text-slate-300 bg-black/60 px-0.5 rounded scale-90">NS</span>
       </div>
 
       {/* Striker Avatar (Batting Team Colors) */}
-      <div className="absolute top-[67%] left-[47.5%] flex flex-col items-center pointer-events-none z-10 transition-transform duration-200">
+      <div className="absolute top-[66%] left-[47.5%] flex flex-col items-center pointer-events-none z-10 transition-transform duration-200">
         <div
-          className="w-4 h-4 rounded-full border border-slate-950 shadow-md flex items-center justify-center text-[7px] font-black text-slate-950"
-          style={{ backgroundColor: battingFranchiseColor }}
+          className="w-5 h-5 rounded-full border-2 border-amber-400 shadow-xl flex items-center justify-center overflow-hidden bg-slate-950"
         >
-          🏏
+          <svg viewBox="0 0 40 40" className="w-full h-full">
+            <circle cx="20" cy="20" r="19" fill={battingFranchiseColor} />
+            {/* Batter helmet & bat */}
+            <circle cx="20" cy="14" r="7.5" fill="#0284c7" />
+            <rect x="15" y="15" width="10" height="4" rx="1.5" fill="#e2e8f0" opacity="0.9" />
+            <path d="M12 36 C12 25 28 25 28 36 Z" fill="#0f172a" />
+            <line x1="28" y1="18" x2="35" y2="34" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" />
+          </svg>
         </div>
-        <span className="text-[8px] font-bold text-amber-300 bg-black/70 px-1 rounded mt-0.5">
+        <span className="text-[8px] font-black text-amber-300 bg-black/80 px-1 py-0.2 rounded mt-0.5 shadow font-mono">
           {strikerName.split(' ')[0]}*
         </span>
       </div>
@@ -243,11 +260,18 @@ export const Pitch2DView: React.FC<Pitch2DViewProps> = ({
       {/* Wicketkeeper (Bowling Team Colors) */}
       <div className="absolute top-[75%] left-[48%] flex flex-col items-center pointer-events-none z-10">
         <div
-          className="w-3.5 h-3.5 rounded-full border border-white shadow flex items-center justify-center text-[6px] font-black text-white"
-          style={{ backgroundColor: bowlingFranchiseColor }}
+          className="w-4 h-4 rounded-full border border-white shadow-md flex items-center justify-center overflow-hidden bg-slate-900"
+          style={{ borderColor: bowlingFranchiseColor }}
         >
-          WK
+          <svg viewBox="0 0 40 40" className="w-full h-full">
+            <circle cx="20" cy="20" r="19" fill={bowlingFranchiseColor} />
+            <circle cx="20" cy="15" r="7" fill="#38bdf8" />
+            <path d="M13 36 C13 27 27 27 27 36 Z" fill="#1e293b" />
+            <rect x="14" y="24" width="4" height="4" rx="1" fill="#22c55e" />
+            <rect x="22" y="24" width="4" height="4" rx="1" fill="#22c55e" />
+          </svg>
         </div>
+        <span className="text-[7px] font-bold text-slate-300 bg-black/60 px-0.5 rounded scale-90">WK</span>
       </div>
 
       {/* 9 Fielders with Intelligent Running Movement toward Trajectory */}

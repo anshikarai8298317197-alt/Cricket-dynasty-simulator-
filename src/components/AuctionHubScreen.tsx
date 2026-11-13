@@ -3,14 +3,17 @@
  * Purse telemetry, retentions preview, RTM status, and auction staging
  */
 import React from 'react';
-import { Gavel, Wallet, Users, Globe, Shield, ArrowRight, RotateCcw, Award, CheckCircle } from 'lucide-react';
+import { Gavel, ArrowRight, RotateCcw, CheckCircle } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { FRANCHISES } from '../data/franchises';
 import { PLAYERS_DATABASE } from '../data/players';
+import { FranchiseLogo } from './FranchiseLogo';
+import { DbPersistence } from '../services/dbPersistence';
 
 interface AuctionHubScreenProps {
   career: CareerSave;
   onStartAuction: () => void;
+  onResumeLiveAuction?: () => void;
   onOpenRetentions: () => void;
   onBack: () => void;
 }
@@ -18,6 +21,7 @@ interface AuctionHubScreenProps {
 export const AuctionHubScreen: React.FC<AuctionHubScreenProps> = ({
   career,
   onStartAuction,
+  onResumeLiveAuction,
   onOpenRetentions,
   onBack,
 }) => {
@@ -25,6 +29,8 @@ export const AuctionHubScreen: React.FC<AuctionHubScreenProps> = ({
   const retainedPlayers = PLAYERS_DATABASE.filter(p => career.squadPlayerIds.includes(p.id));
   const overseasCount = retainedPlayers.filter(p => p.isOverseas).length;
   const rtmCards = retainedPlayers.length >= 5 ? 1 : 2;
+  const activeAuction = DbPersistence.getActiveLiveAuction();
+  const hasSavedAuctionForCareer = activeAuction && activeAuction.careerId === career.id;
 
   return (
     <div className="flex-1 flex flex-col bg-[#0C1425] text-white">
@@ -37,15 +43,7 @@ export const AuctionHubScreen: React.FC<AuctionHubScreenProps> = ({
 
         <div className="flex items-center justify-between relative z-10">
           <div className="flex items-center gap-3">
-            <div
-              className="w-13 h-13 rounded-2xl border-2 flex items-center justify-center font-black text-xl text-white shadow-lg"
-              style={{
-                backgroundColor: `${franchise.primaryColor}28`,
-                borderColor: franchise.primaryColor,
-              }}
-            >
-              {franchise.shortName}
-            </div>
+            <FranchiseLogo franchiseId={franchise.id} size={52} className="rounded-2xl shadow-lg" />
 
             <div>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#080E1A] text-amber-400 border border-amber-500/30">
@@ -67,6 +65,25 @@ export const AuctionHubScreen: React.FC<AuctionHubScreenProps> = ({
 
       {/* Main Hub Body */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {hasSavedAuctionForCareer && (
+          <div className="p-3.5 rounded-2xl bg-emerald-950/50 border border-emerald-500/50 flex items-center justify-between gap-3">
+            <div>
+              <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                AUCTION IN PROGRESS · AUTO-SAVED
+              </span>
+              <p className="text-xs font-bold text-white mt-0.5">
+                Resume at Lot #{(activeAuction.currentLotIndex || 0) + 1} · {activeAuction.phase}
+              </p>
+            </div>
+            <button
+              onClick={onResumeLiveAuction || onStartAuction}
+              className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase shrink-0"
+            >
+              Resume
+            </button>
+          </div>
+        )}
+
         {/* Squad Status Telemetry Grid */}
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="p-3 rounded-xl bg-[#121E36] border border-[#1E2D4A]">
@@ -142,36 +159,36 @@ export const AuctionHubScreen: React.FC<AuctionHubScreenProps> = ({
           </div>
         )}
 
-        {/* Auction Sets Overview */}
+        {/* Auction Sets Overview (17 Authoritative Sets) */}
         <div className="p-3.5 rounded-xl bg-[#121E36] border border-[#1E2D4A] space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
               <Gavel className="w-3.5 h-3.5 text-amber-400" />
-              <span>Upcoming Auction Order</span>
+              <span>17-Set Auction Order</span>
             </h4>
             <span className="text-[10px] font-bold text-emerald-400">320 PLAYERS READY</span>
           </div>
 
           <div className="space-y-1.5 text-xs text-slate-300">
             <div className="flex justify-between items-center py-1 border-b border-[#1E2D4A]/50">
-              <span>Set 1: Elite Marquee Batters</span>
-              <span className="font-bold text-amber-400">Diamond Tier</span>
+              <span>Set 1: Platinum Marquee (Mixed Roles)</span>
+              <span className="font-bold text-cyan-300">13 Players</span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-[#1E2D4A]/50">
-              <span>Set 2: Express Fast Bowlers</span>
-              <span className="font-bold text-blue-400">Diamond / Gold</span>
+              <span>Sets 2–5: Diamond (BAT · BWL · AR · WK)</span>
+              <span className="font-bold text-blue-300">27 Players</span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-[#1E2D4A]/50">
-              <span>Set 3: Elite Wicketkeepers</span>
-              <span className="font-bold text-amber-400">Diamond / Gold</span>
+              <span>Sets 6–9: Gold (BAT · BWL · AR · WK)</span>
+              <span className="font-bold text-amber-400">80 Players</span>
             </div>
             <div className="flex justify-between items-center py-1 border-b border-[#1E2D4A]/50">
-              <span>Set 4: All-Rounders (Pace & Spin)</span>
-              <span className="font-bold text-purple-400">Gold / Silver</span>
+              <span>Sets 10–13: Silver (BAT · BWL · AR · WK)</span>
+              <span className="font-bold text-slate-300">100 Players</span>
             </div>
             <div className="flex justify-between items-center py-1">
-              <span>Set 5+: Specialists & Uncapped Prospects</span>
-              <span className="font-bold text-slate-400">Silver / Bronze</span>
+              <span>Sets 14–17: Bronze (BAT · BWL · AR · WK)</span>
+              <span className="font-bold text-orange-400">100 Players</span>
             </div>
           </div>
         </div>
@@ -180,11 +197,11 @@ export const AuctionHubScreen: React.FC<AuctionHubScreenProps> = ({
       {/* Start Auction Bottom Bar */}
       <div className="p-4 bg-[#080E1A] border-t border-[#1E2D4A] space-y-2">
         <button
-          onClick={onStartAuction}
+          onClick={hasSavedAuctionForCareer && onResumeLiveAuction ? onResumeLiveAuction : onStartAuction}
           className="w-full py-4 rounded-xl bg-gradient-to-r from-[#FBBF24] via-[#F59E0B] to-[#D97706] font-black text-sm uppercase tracking-wider text-slate-950 flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(245,158,11,0.35)] active:scale-[0.98] transition-transform"
         >
           <Gavel className="w-5 h-5 fill-slate-950" />
-          <span>Enter Live Auction Room</span>
+          <span>{hasSavedAuctionForCareer ? 'Resume Live Auction Room' : 'Enter Live Auction Room'}</span>
         </button>
         <p className="text-[10px] text-center text-slate-400">
           All 10 IPL franchises participate simultaneously in live bidding.

@@ -49,6 +49,8 @@ import {
 } from '../types/auction';
 import { Player } from '../types/player';
 import { FranchiseLogo } from './FranchiseLogo';
+import { PlayerAvatar } from './PlayerAvatar';
+import { AuctionSetTransitionModal } from './AuctionSetTransitionModal';
 
 interface LiveAuctionScreenProps {
   career: CareerSave;
@@ -62,8 +64,9 @@ interface LiveAuctionScreenProps {
   onExitAuction: () => void;
 }
 
-// Helper: Nationality flag and acronym
+// Helper: Nationality flag and acronym (null-safe -> never fabricates 'IND' for missing country)
 const getCountryBadge = (nationality: string, isOverseas: boolean) => {
+  if (!nationality || nationality === 'N/A') return { flag: '🌐', code: 'N/A' };
   if (!isOverseas || nationality.includes('India')) return { flag: '🇮🇳', code: 'IND' };
   if (nationality.includes('South Africa')) return { flag: '🇿🇦', code: 'SA' };
   if (nationality.includes('Australia')) return { flag: '🇦🇺', code: 'AUS' };
@@ -73,14 +76,7 @@ const getCountryBadge = (nationality: string, isOverseas: boolean) => {
   if (nationality.includes('Afghanistan')) return { flag: '🇦🇫', code: 'AFG' };
   if (nationality.includes('Sri Lanka')) return { flag: '🇱🇰', code: 'SL' };
   if (nationality.includes('Bangladesh')) return { flag: '🇧🇩', code: 'BAN' };
-  return { flag: '🌐', code: 'INT' };
-};
-
-// Helper: Player initials for avatar
-const getPlayerInitials = (name: string) => {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return { flag: '🌐', code: nationality.slice(0, 3).toUpperCase() };
 };
 
 export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
@@ -93,27 +89,101 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
     PLAYERS_DATABASE.reduce((acc, p) => ({ ...acc, [p.id]: p }), {})
   ).current;
 
-  // Initialize Auction Lots
-  const [lots] = useState<AuctionLot[]>(() => {
+  const savedAuctionSnapshot = useRef(
+    (() => {
+      const snap = DbPersistence.getActiveLiveAuction();
+      return snap && snap.careerId === career.id ? snap : null;
+    })()
+  ).current;
+
+  const auctionIdRef = useRef<string>(savedAuctionSnapshot?.auctionId || `auc_${career.id}_${Date.now()}`);
+  const restoredInitialLotRef = useRef<boolean>(Boolean(savedAuctionSnapshot));
+  const finalizedLotKeyRef = useRef<string | null>(null);
+
+  // Initialize Auction Lots (hydrate saved lot order & statuses if resuming)
+  const [lots, setLots] = useState<AuctionLot[]>(() => {
+    if (savedAuctionSnapshot?.lots && savedAuctionSnapshot.lots.length > 0) {
+      const hydrated = savedAuctionSnapshot.lots
+        .map((savedLot: any, idx: number) => {
+          const playerId = savedLot.playerId || savedLot.player?.id;
+          const playerObj = allPlayersMap[playerId] || savedLot.player;
+          if (!playerObj) return null;
+          return {
+            lotNumber: savedLot.lotNumber || idx + 1,
+            lotId: savedLot.lotId || playerObj.auctionLotId,
+            player: playerObj,
+            category: savedLot.category || 'BAT',
+            setIndex: savedLot.setIndex || 1,
+            setKey: savedLot.setKey || `${savedLot.tier}:${savedLot.category}`,
+            setTitle: savedLot.setTitle || savedLot.tier,
+            tier: savedLot.tier || playerObj.ratingTier,
+            basePriceCr: savedLot.basePriceCr ?? playerObj.contract.baseAuctionPriceCr,
+            currentBidCr: savedLot.currentBidCr ?? playerObj.contract.baseAuctionPriceCr,
+            currentHighestBidderId: savedLot.currentHighestBidderId ?? null,
+            status: savedLot.status || 'PENDING',
+            bidHistory: savedLot.bidHistory || [],
+          } as AuctionLot;
+        })
+        .filter((l: AuctionLot | null): l is AuctionLot => l !== null);
+      if (hydrated.length > 0) return hydrated;
+    }
+
     const availablePlayers = PLAYERS_DATABASE.filter(p => !career.squadPlayerIds.includes(p.id));
     return AuctionEngine.generateAuctionLots(availablePlayers);
   });
 
-  const [currentLotIndex, setCurrentLotIndex] = useState(0);
-  const [currentBidCr, setCurrentBidCr] = useState<number>(0);
-  const [highestBidderId, setHighestBidderId] = useState<string | null>(null);
-  const [previousBidderId, setPreviousBidderId] = useState<string | null>(null);
+  const [currentLotIndex, setCurrentLotIndex] = useState<number>(() => {
+    const idx = savedAuctionSnapshot?.currentLotIndex ?? 0;
+    return idx >= 0 ? idx : 0;
+  });
+
+  const [currentBidCr, setCurrentBidCr] = useState<number>(() => savedAuctionSnapshot?.currentBidCr ?? 0);
+  const [highestBidderId, setHighestBidderId] = useState<string | null>(() => savedAuctionSnapshot?.highestBidderId ?? null);
+  const [previousBidderId, setPreviousBidderId] = useState<string | null>(() => savedAuctionSnapshot?.previousBidderId ?? null);
   const [previousBidCr, setPreviousBidCr] = useState<number | null>(null);
-  const [bidHistory, setBidHistory] = useState<{ bidderId: string; amountCr: number; time: string; isRtm?: boolean }[]>([]);
+  const [bidHistory, setBidHistory] = useState<{ bidderId: string; amountCr: number; time: string; isRtm?: boolean }[]>(
+    () => savedAuctionSnapshot?.bidHistory || []
+  );
   const [timerSeconds, setTimerSeconds] = useState(6);
-  const [isPaused, setIsPaused] = useState(false);
-  const [simSpeed, setSimSpeed] = useState<'1x' | '2x' | '4x'>('1x');
-  const [aiCommentary, setAiCommentary] = useState<string>('Bidding open for this lot.');
+  const [isPaused, setIsPaused] = useState<boolean>(() => savedAuctionSnapshot?.isPaused ?? false);
+  const [simSpeed, setSimSpeed] = useState<'1x' | '2x' | '4x'>(() => {
+    const s = savedAuctionSnapshot?.simSpeed;
+    return s === 4 ? '4x' : s === 2 ? '2x' : '1x';
+  });
+  const [aiCommentary, setAiCommentary] = useState<string>(
+    savedAuctionSnapshot ? 'Resumed live auction table.' : 'Bidding open for this lot.'
+  );
 
   // Modals & Drawers
   const [isStatsDrawerOpen, setIsStatsDrawerOpen] = useState(false);
   const [isSquadModalOpen, setIsSquadModalOpen] = useState(false);
+  const [isSetScheduleOpen, setIsSetScheduleOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Set Transition Modal State
+  const [setTransitionModal, setSetTransitionModal] = useState<{
+    isOpen: boolean;
+    completedTitle: string;
+    nextTitle: string;
+    nextSetKey: string;
+    nextPlayers: Player[];
+  }>({
+    isOpen: false,
+    completedTitle: '',
+    nextTitle: '',
+    nextSetKey: '',
+    nextPlayers: [],
+  });
+
+  const [confirmedSetTransitions, setConfirmedSetTransitions] = useState<string[]>(
+    () => savedAuctionSnapshot?.confirmedSetTransitions || []
+  );
+  const [unsoldPlayerIds, setUnsoldPlayerIds] = useState<string[]>(
+    () => savedAuctionSnapshot?.unsoldPlayerIds || []
+  );
+  const [acceleratedRoundStarted, setAcceleratedRoundStarted] = useState<boolean>(
+    () => savedAuctionSnapshot?.phase === 'ACCELERATED_UNSOLD'
+  );
 
   // Result Popup state (Shown immediately when lot is SOLD or UNSOLD)
   const [resultPopup, setResultPopup] = useState<{
@@ -130,10 +200,15 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
   });
 
   // Withdrawn franchises for the active lot
-  const [withdrawnFranchiseIds, setWithdrawnFranchiseIds] = useState<string[]>([]);
+  const [withdrawnFranchiseIds, setWithdrawnFranchiseIds] = useState<string[]>(
+    () => savedAuctionSnapshot?.withdrawnFranchiseIds || []
+  );
 
   // Franchise states across all 10 franchises
   const [franchiseStates, setFranchiseStates] = useState<Record<string, FranchiseAuctionState>>(() => {
+    if (savedAuctionSnapshot?.franchiseStates && Object.keys(savedAuctionSnapshot.franchiseStates).length > 0) {
+      return savedAuctionSnapshot.franchiseStates as Record<string, FranchiseAuctionState>;
+    }
     return AuctionEngine.initializeFranchiseStates(
       career.franchiseId,
       { [career.franchiseId]: career.squadPlayerIds },
@@ -141,7 +216,9 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
     );
   });
 
-  const [transactions, setTransactions] = useState<AuctionTransaction[]>([]);
+  const [transactions, setTransactions] = useState<AuctionTransaction[]>(
+    () => (savedAuctionSnapshot?.transactions as AuctionTransaction[]) || []
+  );
   const [isAuctionSummaryOpen, setIsAuctionSummaryOpen] = useState(false);
 
   const activeLot = lots[currentLotIndex];
@@ -150,11 +227,80 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
   // Maximum bid ceiling for active lot
   const activeMaxBidLimit = activeLot ? AuctionEngine.getMaxBidLimit(activeLot.player) : 25.0;
 
+  // Persist authoritative auction snapshot immediately
+  const persistAuctionSnapshot = (overrides?: {
+    lots?: AuctionLot[];
+    currentLotIndex?: number;
+    currentBidCr?: number;
+    highestBidderId?: string | null;
+    previousBidderId?: string | null;
+    franchiseStates?: Record<string, FranchiseAuctionState>;
+    transactions?: AuctionTransaction[];
+    bidHistory?: { bidderId: string; amountCr: number; time: string }[];
+    withdrawnFranchiseIds?: string[];
+    unsoldPlayerIds?: string[];
+    confirmedSetTransitions?: string[];
+    phase?: string;
+    isPaused?: boolean;
+    simSpeed?: '1x' | '2x' | '4x';
+  }) => {
+    const targetLots = overrides?.lots || lots;
+    const targetIdx = overrides?.currentLotIndex ?? currentLotIndex;
+    const targetLot = targetLots[targetIdx];
+    const spd = overrides?.simSpeed || simSpeed;
+
+    DbPersistence.saveLiveAuctionEvent({
+      careerId: career.id,
+      auctionId: auctionIdRef.current,
+      currentLotIndex: targetIdx,
+      currentLotId: targetLot?.lotId || targetLot?.player.auctionLotId,
+      currentPlayerId: targetLot?.player.id,
+      currentBidCr: overrides?.currentBidCr ?? currentBidCr,
+      highestBidderId: overrides?.highestBidderId !== undefined ? overrides.highestBidderId : highestBidderId,
+      previousBidderId: overrides?.previousBidderId !== undefined ? overrides.previousBidderId : previousBidderId,
+      phase: overrides?.phase || (acceleratedRoundStarted ? 'ACCELERATED_UNSOLD' : 'MAIN_AUCTION'),
+      lots: targetLots.map(l => ({
+        lotNumber: l.lotNumber,
+        lotId: l.lotId,
+        playerId: l.player.id,
+        category: l.category,
+        setIndex: l.setIndex,
+        setKey: l.setKey,
+        setTitle: l.setTitle,
+        tier: l.tier,
+        basePriceCr: l.basePriceCr,
+        currentBidCr: l.currentBidCr,
+        currentHighestBidderId: l.currentHighestBidderId,
+        status: l.status,
+      })),
+      franchiseStates: overrides?.franchiseStates || franchiseStates,
+      transactions: overrides?.transactions || transactions,
+      bidHistory: overrides?.bidHistory || bidHistory,
+      withdrawnFranchiseIds: overrides?.withdrawnFranchiseIds || withdrawnFranchiseIds,
+      unsoldPlayerIds: overrides?.unsoldPlayerIds || unsoldPlayerIds,
+      confirmedSetTransitions: overrides?.confirmedSetTransitions || confirmedSetTransitions,
+      simSpeed: spd === '4x' ? 4 : spd === '2x' ? 2 : 1,
+      isPaused: overrides?.isPaused !== undefined ? overrides.isPaused : isPaused,
+      lastSavedAt: Date.now(),
+    });
+  };
+
   // Initialize lot when currentLotIndex changes
   useEffect(() => {
     if (!activeLot) return;
 
-    setCurrentBidCr(activeLot.basePriceCr);
+    if (restoredInitialLotRef.current) {
+      restoredInitialLotRef.current = false;
+      if (activeLot.status === 'SOLD' || activeLot.status === 'UNSOLD') {
+        // Lot already settled before crash; keep popup closed or advance safely
+        finalizedLotKeyRef.current = `${auctionIdRef.current}_${activeLot.lotNumber}_${activeLot.player.id}`;
+      }
+      return;
+    }
+
+    finalizedLotKeyRef.current = null;
+    const initialBid = activeLot.basePriceCr;
+    setCurrentBidCr(initialBid);
     setHighestBidderId(null);
     setPreviousBidderId(null);
     setPreviousBidCr(null);
@@ -162,12 +308,21 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
     setWithdrawnFranchiseIds([]);
     setTimerSeconds(6);
     setResultPopup({ isOpen: false, outcome: 'SOLD', winningFranchiseId: null, finalPriceCr: 0 });
-    setAiCommentary(`Bidding open for ${activeLot.player.name}. Base price ₹${activeLot.basePriceCr.toFixed(2)} Cr.`);
+    setAiCommentary(`Bidding open for ${activeLot.player.name}. Base price ₹${initialBid.toFixed(2)} Cr.`);
+
+    persistAuctionSnapshot({
+      currentLotIndex,
+      currentBidCr: initialBid,
+      highestBidderId: null,
+      previousBidderId: null,
+      bidHistory: [],
+      withdrawnFranchiseIds: [],
+    });
   }, [currentLotIndex]);
 
   // Main Auction Timer & AI Bidder Loop
   useEffect(() => {
-    if (!activeLot || isPaused || resultPopup.isOpen) return;
+    if (!activeLot || isPaused || resultPopup.isOpen || setTransitionModal.isOpen || isAuctionSummaryOpen) return;
 
     const tickInterval = simSpeed === '1x' ? 1000 : (simSpeed === '2x' ? 500 : 250);
 
@@ -199,6 +354,10 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
 
         if (aiBid && Math.random() > 0.25) {
           const nextBid = aiBid.bidAmountCr;
+          const nextHistory = [
+            { bidderId: aiBid.franchiseId, amountCr: nextBid, time: 'Just now' },
+            ...bidHistory.slice(0, 7),
+          ];
           setPreviousBidderId(highestBidderId);
           setPreviousBidCr(currentBidCr);
           setCurrentBidCr(nextBid);
@@ -213,11 +372,14 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
             highestBidderId
           );
           setAiCommentary(commentary);
+          setBidHistory(nextHistory);
 
-          setBidHistory(prev => [
-            { bidderId: aiBid.franchiseId, amountCr: nextBid, time: 'Just now' },
-            ...prev.slice(0, 7),
-          ]);
+          persistAuctionSnapshot({
+            currentBidCr: nextBid,
+            highestBidderId: aiBid.franchiseId,
+            previousBidderId: highestBidderId,
+            bidHistory: nextHistory,
+          });
           return;
         }
 
@@ -238,28 +400,42 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
     simSpeed,
     franchiseStates,
     resultPopup.isOpen,
+    setTransitionModal.isOpen,
+    isAuctionSummaryOpen,
     withdrawnFranchiseIds,
     activeMaxBidLimit,
   ]);
 
-  // Finalize current lot and open Result Popup
+  // Finalize current lot and open Result Popup (strictly idempotent)
   const handleFinalizeLot = (winningFranchise: string | null, winningAmount: number) => {
-    if (!activeLot) return;
+    if (!activeLot || resultPopup.isOpen) return;
+
+    const eventKey = `${auctionIdRef.current}_lot_${activeLot.lotNumber}_${activeLot.player.id}`;
+    if (finalizedLotKeyRef.current === eventKey || DbPersistence.hasProcessedEvent(eventKey)) {
+      return;
+    }
+    finalizedLotKeyRef.current = eventKey;
+    DbPersistence.markEventProcessed(eventKey);
 
     if (winningFranchise) {
-      // Deduct purse and update roster
-      setFranchiseStates(prev => {
-        const curWinner = prev[winningFranchise];
-        return {
-          ...prev,
-          [winningFranchise]: {
-            ...curWinner,
-            purseRemainingCr: Number((curWinner.purseRemainingCr - winningAmount).toFixed(2)),
-            rosterPlayerIds: [...curWinner.rosterPlayerIds, activeLot.player.id],
-            totalSpentCr: Number((curWinner.totalSpentCr + winningAmount).toFixed(2)),
-          },
+      const nextStates: Record<string, FranchiseAuctionState> = { ...franchiseStates };
+      const curWinner = nextStates[winningFranchise];
+      if (curWinner && !curWinner.rosterPlayerIds.includes(activeLot.player.id)) {
+        nextStates[winningFranchise] = {
+          ...curWinner,
+          purseRemainingCr: Number((curWinner.purseRemainingCr - winningAmount).toFixed(2)),
+          rosterPlayerIds: [...curWinner.rosterPlayerIds, activeLot.player.id],
+          totalSpentCr: Number((curWinner.totalSpentCr + winningAmount).toFixed(2)),
         };
-      });
+      }
+      setFranchiseStates(nextStates);
+
+      const updatedLots = lots.map((l, idx) =>
+        idx === currentLotIndex
+          ? { ...l, status: 'SOLD' as const, currentBidCr: winningAmount, currentHighestBidderId: winningFranchise }
+          : l
+      );
+      setLots(updatedLots);
 
       const tx: AuctionTransaction = {
         id: `tx_${Date.now()}_${activeLot.player.id}`,
@@ -270,9 +446,22 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
         franchiseId: winningFranchise,
         amountCr: winningAmount,
         timestamp: Date.now(),
-        type: 'AUCTION_BID',
+        type: acceleratedRoundStarted ? 'ACCELERATED_DRAFT' : 'AUCTION_BID',
       };
-      setTransactions(prev => [tx, ...prev]);
+      const nextTransactions = [tx, ...transactions];
+      setTransactions(nextTransactions);
+
+      const nextUnsold = unsoldPlayerIds.filter(id => id !== activeLot.player.id);
+      setUnsoldPlayerIds(nextUnsold);
+
+      persistAuctionSnapshot({
+        lots: updatedLots,
+        franchiseStates: nextStates,
+        transactions: nextTransactions,
+        unsoldPlayerIds: nextUnsold,
+        currentBidCr: winningAmount,
+        highestBidderId: winningFranchise,
+      });
 
       setResultPopup({
         isOpen: true,
@@ -281,6 +470,21 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
         finalPriceCr: winningAmount,
       });
     } else {
+      const updatedLots = lots.map((l, idx) =>
+        idx === currentLotIndex ? { ...l, status: 'UNSOLD' as const } : l
+      );
+      setLots(updatedLots);
+      const nextUnsold = unsoldPlayerIds.includes(activeLot.player.id)
+        ? unsoldPlayerIds
+        : [...unsoldPlayerIds, activeLot.player.id];
+      setUnsoldPlayerIds(nextUnsold);
+
+      persistAuctionSnapshot({
+        lots: updatedLots,
+        unsoldPlayerIds: nextUnsold,
+        highestBidderId: null,
+      });
+
       setResultPopup({
         isOpen: true,
         outcome: 'UNSOLD',
@@ -315,27 +519,45 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
       if (currentOverseas >= 8) return;
     }
 
+    const nextHistory = [
+      { bidderId: userFranchise.id, amountCr: nextBid, time: 'Just now' },
+      ...bidHistory.slice(0, 7),
+    ];
+
     setPreviousBidderId(highestBidderId);
     setPreviousBidCr(currentBidCr);
     setCurrentBidCr(nextBid);
     setHighestBidderId(userFranchise.id);
     setTimerSeconds(6);
-
     setAiCommentary(`${userFranchise.name} enters the bidding at ₹${nextBid.toFixed(2)} Cr!`);
-    setBidHistory(prev => [
-      { bidderId: userFranchise.id, amountCr: nextBid, time: 'Just now' },
-      ...prev.slice(0, 7),
-    ]);
+    setBidHistory(nextHistory);
+
+    persistAuctionSnapshot({
+      currentBidCr: nextBid,
+      highestBidderId: userFranchise.id,
+      previousBidderId: highestBidderId,
+      bidHistory: nextHistory,
+    });
   };
 
   // User Presses PASS / SKIP:
-  // Immediately withdraws user franchise, disables further bidding, completes remaining AI auction in background,
+  // Immediately withdraws user franchise, NEVER purchases for user, completes remaining AI resolution,
   // and displays the Result Popup immediately!
   const handleUserPass = () => {
     if (!activeLot || resultPopup.isOpen) return;
+    if (highestBidderId === userFranchise.id) return;
+
+    const eventKey = `${auctionIdRef.current}_lot_${activeLot.lotNumber}_${activeLot.player.id}`;
+    if (finalizedLotKeyRef.current === eventKey || DbPersistence.hasProcessedEvent(eventKey)) {
+      return;
+    }
+    finalizedLotKeyRef.current = eventKey;
+    DbPersistence.markEventProcessed(eventKey);
 
     // 1. Immediately withdraw user franchise
-    const updatedWithdrawn = [...withdrawnFranchiseIds, userFranchise.id];
+    const updatedWithdrawn = withdrawnFranchiseIds.includes(userFranchise.id)
+      ? withdrawnFranchiseIds
+      : [...withdrawnFranchiseIds, userFranchise.id];
     setWithdrawnFranchiseIds(updatedWithdrawn);
 
     // 2. Fast background AI resolution between eligible AI franchises
@@ -349,42 +571,142 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
       updatedWithdrawn
     );
 
-    // 3. Update franchise states
     setFranchiseStates(result.updatedStates);
 
-    if (result.outcome === 'SOLD' && result.winningFranchiseId) {
+    const safeWinner =
+      result.outcome === 'SOLD' && result.winningFranchiseId && result.winningFranchiseId !== userFranchise.id
+        ? result.winningFranchiseId
+        : null;
+
+    let nextTransactions = transactions;
+    let nextUnsold = unsoldPlayerIds;
+    const updatedLots = lots.map((l, idx) =>
+      idx === currentLotIndex
+        ? {
+            ...l,
+            status: safeWinner ? ('SOLD' as const) : ('UNSOLD' as const),
+            currentBidCr: result.finalPriceCr,
+            currentHighestBidderId: safeWinner,
+          }
+        : l
+    );
+    setLots(updatedLots);
+
+    if (safeWinner) {
       const tx: AuctionTransaction = {
         id: `tx_${Date.now()}_${activeLot.player.id}`,
         playerId: activeLot.player.id,
         playerName: activeLot.player.name,
         playerRole: activeLot.player.primaryRole,
         isOverseas: activeLot.player.isOverseas,
-        franchiseId: result.winningFranchiseId,
+        franchiseId: safeWinner,
         amountCr: result.finalPriceCr,
         timestamp: Date.now(),
-        type: 'AUCTION_BID',
+        type: acceleratedRoundStarted ? 'ACCELERATED_DRAFT' : 'AUCTION_BID',
       };
-      setTransactions(prev => [tx, ...prev]);
+      nextTransactions = [tx, ...transactions];
+      setTransactions(nextTransactions);
+      nextUnsold = unsoldPlayerIds.filter(id => id !== activeLot.player.id);
+      setUnsoldPlayerIds(nextUnsold);
+    } else {
+      nextUnsold = unsoldPlayerIds.includes(activeLot.player.id)
+        ? unsoldPlayerIds
+        : [...unsoldPlayerIds, activeLot.player.id];
+      setUnsoldPlayerIds(nextUnsold);
     }
+
+    persistAuctionSnapshot({
+      lots: updatedLots,
+      franchiseStates: result.updatedStates,
+      transactions: nextTransactions,
+      withdrawnFranchiseIds: updatedWithdrawn,
+      unsoldPlayerIds: nextUnsold,
+      currentBidCr: result.finalPriceCr,
+      highestBidderId: safeWinner,
+    });
 
     // 4. Immediately display final result popup
     setResultPopup({
       isOpen: true,
-      outcome: result.outcome,
-      winningFranchiseId: result.winningFranchiseId,
+      outcome: safeWinner ? 'SOLD' : 'UNSOLD',
+      winningFranchiseId: safeWinner,
       finalPriceCr: result.finalPriceCr,
       unsoldReason: result.unsoldReason,
     });
   };
 
-  // Continue to Next Lot from Result Popup
+  // Continue to Next Lot from Result Popup (checks 17-set boundaries and Unsold Round)
   const handleContinueNextLot = () => {
     setResultPopup({ isOpen: false, outcome: 'SOLD', winningFranchiseId: null, finalPriceCr: 0 });
-    if (currentLotIndex + 1 < lots.length) {
-      setCurrentLotIndex(prev => prev + 1);
-    } else {
-      setIsAuctionSummaryOpen(true);
+    const nextIdx = currentLotIndex + 1;
+
+    if (nextIdx < lots.length) {
+      const nextLot = lots[nextIdx];
+      const currentSetKey = activeLot?.setKey || activeLot?.tier;
+      const nextSetKey = nextLot.setKey || nextLot.tier;
+
+      if (currentSetKey && nextSetKey && currentSetKey !== nextSetKey && !confirmedSetTransitions.includes(nextSetKey)) {
+        const nextSetPlayers = lots
+          .filter(l => (l.setKey || l.tier) === nextSetKey && l.status === 'PENDING')
+          .map(l => l.player);
+
+        setSetTransitionModal({
+          isOpen: true,
+          completedTitle: activeLot?.setTitle || activeLot?.tier || 'Previous',
+          nextTitle: nextLot.setTitle || nextLot.tier,
+          nextSetKey,
+          nextPlayers: nextSetPlayers,
+        });
+      }
+
+      setCurrentLotIndex(nextIdx);
+      return;
     }
+
+    // End of scheduled lots: launch Accelerated Unsold Round if unsold players remain
+    if (!acceleratedRoundStarted && unsoldPlayerIds.length > 0) {
+      const unsoldPlayers = unsoldPlayerIds
+        .map(id => allPlayersMap[id])
+        .filter((pl): pl is Player => Boolean(pl));
+
+      if (unsoldPlayers.length > 0) {
+        const acceleratedLots: AuctionLot[] = unsoldPlayers.map((pl, idx) => ({
+          lotNumber: lots.length + idx + 1,
+          lotId: pl.auctionLotId,
+          player: pl,
+          category: 'Accelerated Unsold Pool',
+          setIndex: 18,
+          setKey: 'ACCELERATED_UNSOLD',
+          setTitle: 'Accelerated Unsold Round',
+          tier: pl.ratingTier,
+          basePriceCr: Math.max(0.20, Number((pl.contract.baseAuctionPriceCr * 0.75).toFixed(2))),
+          currentBidCr: Math.max(0.20, Number((pl.contract.baseAuctionPriceCr * 0.75).toFixed(2))),
+          currentHighestBidderId: null,
+          status: 'PENDING',
+          bidHistory: [],
+        }));
+
+        const updatedLots = [...lots, ...acceleratedLots];
+        setLots(updatedLots);
+        setAcceleratedRoundStarted(true);
+        setSetTransitionModal({
+          isOpen: true,
+          completedTitle: activeLot?.setTitle || 'Bronze Wicketkeeper',
+          nextTitle: 'Accelerated Unsold Round',
+          nextSetKey: 'ACCELERATED_UNSOLD',
+          nextPlayers: unsoldPlayers,
+        });
+        setCurrentLotIndex(nextIdx);
+        persistAuctionSnapshot({
+          lots: updatedLots,
+          currentLotIndex: nextIdx,
+          phase: 'ACCELERATED_UNSOLD',
+        });
+        return;
+      }
+    }
+
+    setIsAuctionSummaryOpen(true);
   };
 
   // Empty Squad Validation Modal
@@ -421,17 +743,17 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
 
   // Speed Toggle
   const toggleSpeed = () => {
-    if (simSpeed === '1x') setSimSpeed('2x');
-    else if (simSpeed === '2x') setSimSpeed('4x');
-    else setSimSpeed('1x');
+    const nextSpeed = simSpeed === '1x' ? '2x' : simSpeed === '2x' ? '4x' : '1x';
+    setSimSpeed(nextSpeed);
+    persistAuctionSnapshot({ simSpeed: nextSpeed });
   };
 
-  if (!activeLot) {
+  if (!activeLot || isAuctionSummaryOpen) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#070D18] text-white p-6">
         <h2 className="text-xl font-black text-amber-400 mb-2">Auction Pool Completed</h2>
         <p className="text-slate-400 text-xs mb-6 text-center">
-          All lots have been presented. Review squads and proceed to the tournament.
+          All auction lots have been presented. Review your squad ({userState?.rosterPlayerIds.length || 0} players) and proceed to the tournament.
         </p>
         <button
           onClick={handleFinalizeAllAuction}
@@ -446,13 +768,11 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
   const p = activeLot.player;
   const isBowler = p.primaryRole.includes('Bowler') || p.primaryRole.includes('Specialist');
   const isAllRounder = p.primaryRole.includes('All-rounder');
-  const isBatter = !isBowler && !isAllRounder;
 
   const country = getCountryBadge(p.nationality, p.isOverseas);
-  const initials = getPlayerInitials(p.name);
   const jerseyNumber = ((activeLot.lotNumber * 7) % 89 + 10);
   const tierDisplayName = p.ratingTier.toUpperCase();
-  const prevFranchise = p.originalFranchiseId || 'GT';
+  const prevFranchise = p.originalFranchiseId || 'POOL';
 
   // Next bid calculation
   const nextIncrement = AuctionEngine.getNextBidIncrement(currentBidCr);
@@ -478,7 +798,10 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
       <div className="flex items-center justify-between px-3 py-2.5 bg-[#0A1224]/90 border-b border-slate-800/80 backdrop-blur-md z-20">
         <div className="flex items-center space-x-2">
           <button
-            onClick={onExitAuction}
+            onClick={() => {
+              persistAuctionSnapshot();
+              onExitAuction();
+            }}
             className="p-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-300 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -490,16 +813,25 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
           </div>
         </div>
 
-        {/* Center Pill: PLATINUM ⌄ */}
-        <div className="px-2.5 py-1 rounded-md bg-[#131E35] border border-amber-500/40 flex items-center space-x-1">
-          <span className="text-[10px] font-black tracking-wider text-amber-400">
-            {tierDisplayName}
+        {/* Center Pill: Set Title & Set Index */}
+        <button
+          type="button"
+          onClick={() => setIsSetScheduleOpen(true)}
+          className="px-2.5 py-1 rounded-md bg-[#131E35] border border-amber-500/40 flex items-center space-x-1 hover:border-amber-400 transition-colors"
+        >
+          <span className="text-[10px] font-black tracking-wider text-amber-400 truncate max-w-[145px]">
+            {activeLot.setIndex ? `S${activeLot.setIndex}: ` : ''}{activeLot.setTitle || tierDisplayName}
           </span>
-          <ChevronDown className="w-3 h-3 text-amber-400" />
-        </div>
+          <ChevronDown className="w-3 h-3 text-amber-400 shrink-0" />
+        </button>
 
-        {/* Right Controls: Speed & Menu */}
+        {/* Right Controls: Timer, Speed & Menu */}
         <div className="flex items-center space-x-1.5">
+          <span className={`px-1.5 py-1 rounded-md font-mono text-[10px] font-black border ${
+            timerSeconds <= 2 ? 'bg-red-500/20 border-red-500/60 text-red-300' : 'bg-[#131E35] border-slate-700/80 text-emerald-400'
+          }`}>
+            {timerSeconds}s
+          </span>
           <button
             onClick={toggleSpeed}
             className="px-2 py-1 rounded-md bg-[#131E35] border border-slate-700/80 text-[10px] font-bold text-slate-300 flex items-center space-x-1 hover:border-amber-500/50"
@@ -521,8 +853,10 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
         <div className="absolute top-12 right-3 z-50 bg-[#0F1A30] border border-amber-500/50 rounded-xl p-2 w-48 shadow-2xl space-y-1 text-xs">
           <button
             onClick={() => {
-              setIsPaused(!isPaused);
+              const nextPaused = !isPaused;
+              setIsPaused(nextPaused);
               setIsMenuOpen(false);
+              persistAuctionSnapshot({ isPaused: nextPaused });
             }}
             className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200 font-bold flex items-center justify-between"
           >
@@ -554,10 +888,10 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
 
       {/* Main Auction Scrollable Arena */}
       <div className="flex-1 overflow-y-auto px-3.5 py-2 space-y-3 pb-24">
-        {/* ================= PLAYER PROFILE HEADER (Image 2 style) ================= */}
+        {/* ================= PLAYER PROFILE HEADER ================= */}
         <div className="flex flex-col items-center">
           {/* Badges Row */}
-          <div className="flex items-center space-x-1.5 mb-3">
+          <div className="flex items-center space-x-1.5 mb-3 flex-wrap justify-center gap-y-1">
             <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-amber-400 border border-amber-500/70 bg-amber-500/10">
               {tierDisplayName}
             </span>
@@ -573,14 +907,14 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
             </span>
           </div>
 
-          {/* Large Circular Avatar with initials & overlapping jersey badge */}
+          {/* Large Circular Role-Based Player Avatar with overlapping jersey badge */}
           <div className="relative mb-2">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-red-600 via-rose-700 to-amber-600 flex items-center justify-center border-2 border-red-500/50 shadow-xl shadow-red-950/40">
-              <span className="text-2xl font-black text-white tracking-wider">
-                {initials}
-              </span>
-            </div>
-            {/* Overlapping Jersey Badge */}
+            <PlayerAvatar
+              player={p}
+              size={80}
+              jerseyColor={userFranchise.primaryColor}
+              showRoleBadge={false}
+            />
             <div className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-full bg-[#0D1525] border-2 border-amber-500 text-[10px] font-black text-amber-400 shadow">
               #{jerseyNumber}
             </div>
@@ -591,52 +925,52 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
             {p.name}
           </h2>
 
-          {/* Subtitle: Role · age · Bowling Arm / Batting Hand */}
+          {/* Subtitle: Role · age · Bowling Arm / Batting Hand (null-safe) */}
           <p className="text-[11px] font-medium text-slate-400 text-center mt-0.5">
             {p.primaryRole}{p.age ? ` · age ${p.age}` : ''} ·{' '}
             {isBowler
-              ? p.bowlingArm?.includes('Left') ? 'LAF' : 'RAF'
-              : p.battingHand === 'Left Hand' ? 'LHB' : 'RHB'}
+              ? (p.bowlingArm ? (p.bowlingArm.includes('Left') ? 'LAF' : 'RAF') : 'N/A')
+              : (p.battingHand ? (p.battingHand === 'Left Hand' ? 'LHB' : 'RHB') : 'N/A')}
           </p>
 
-          {/* 4 Attribute Bars Row (with green progress lines like Image 2) */}
+          {/* 4 Attribute Bars Row */}
           <div className="w-full grid grid-cols-4 gap-2 mt-3 px-1">
             {isBowler ? (
               <>
                 <div>
                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
                     <span className="text-slate-400">BOWL</span>
-                    <span className="text-emerald-400 font-mono">{p.overallRating}</span>
+                    <span className="text-emerald-400 font-mono">{p.attributes?.bowling ?? p.overallRating}</span>
                   </div>
                   <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.overallRating}%` }} />
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.attributes?.bowling ?? p.overallRating}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
                     <span className="text-slate-400">PACE</span>
-                    <span className="text-emerald-400 font-mono">{p.paceBowling?.speed || 88}</span>
+                    <span className="text-emerald-400 font-mono">{p.paceBowling?.speed ?? p.spinBowling?.turn ?? 75}</span>
                   </div>
                   <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.paceBowling?.speed || 88}%` }} />
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.paceBowling?.speed ?? p.spinBowling?.turn ?? 75}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
                     <span className="text-slate-400">CTRL</span>
-                    <span className="text-emerald-400 font-mono">{p.paceBowling?.control || p.spinBowling?.control || 86}</span>
+                    <span className="text-emerald-400 font-mono">{p.paceBowling?.control ?? p.spinBowling?.control ?? 75}</span>
                   </div>
                   <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.paceBowling?.control || p.spinBowling?.control || 86}%` }} />
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.paceBowling?.control ?? p.spinBowling?.control ?? 75}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
                     <span className="text-slate-400">DTH</span>
-                    <span className="text-emerald-400 font-mono">{p.primaryRole.includes('Death') ? 92 : 86}</span>
+                    <span className="text-emerald-400 font-mono">{p.paceBowling?.deathBowling ?? p.attributes?.deathBowling ?? 75}</span>
                   </div>
                   <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.primaryRole.includes('Death') ? 92 : 86}%` }} />
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.paceBowling?.deathBowling ?? p.attributes?.deathBowling ?? 75}%` }} />
                   </div>
                 </div>
               </>
@@ -645,19 +979,19 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
                 <div>
                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
                     <span className="text-slate-400">BAT</span>
-                    <span className="text-emerald-400 font-mono">{p.batting.timing}</span>
+                    <span className="text-emerald-400 font-mono">{p.attributes?.batting ?? p.batting.timing}</span>
                   </div>
                   <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.batting.timing}%` }} />
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.attributes?.batting ?? p.batting.timing}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-[10px] font-black uppercase mb-1">
                     <span className="text-slate-400">BOWL</span>
-                    <span className="text-emerald-400 font-mono">{p.overallRating - 4}</span>
+                    <span className="text-emerald-400 font-mono">{p.attributes?.bowling ?? Math.max(55, p.overallRating - 4)}</span>
                   </div>
                   <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.overallRating - 4}%` }} />
+                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${p.attributes?.bowling ?? Math.max(55, p.overallRating - 4)}%` }} />
                   </div>
                 </div>
                 <div>
@@ -899,11 +1233,11 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
           {/* Secondary SKIP / PASS Button */}
           <button
             onClick={handleUserPass}
-            disabled={isUserWithdrawn}
+            disabled={isUserWithdrawn || isUserHighest}
             className="py-3.5 px-5 rounded-2xl bg-[#111B30] hover:bg-[#162340] active:scale-98 border border-slate-700/80 text-xs font-black uppercase text-slate-300 flex items-center space-x-1.5 transition-all disabled:opacity-40"
           >
             <span>⏩</span>
-            <span>SKIP</span>
+            <span>PASS</span>
           </button>
         </div>
       </div>
@@ -1131,7 +1465,7 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
                 <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Matches</span>
-                    <span className="font-black text-white text-xs">{p.careerStats.matches}</span>
+                    <span className="font-black text-white text-xs">{p.careerStats.matches ?? '—'}</span>
                   </div>
                   <div className="bg-slate-900 p-2 rounded-lg">
                     <span className="text-slate-400 block">Runs</span>
@@ -1267,6 +1601,60 @@ export const LiveAuctionScreen: React.FC<LiveAuctionScreenProps> = ({
             >
               RETURN TO AUCTION
             </button>
+          </div>
+        </div>
+      )}
+      {/* ================= 17-SET TRANSITION PREVIEW MODAL ================= */}
+      {setTransitionModal.isOpen && (
+        <AuctionSetTransitionModal
+          completedTier={setTransitionModal.completedTitle}
+          nextTier={setTransitionModal.nextTitle}
+          nextTierPlayers={setTransitionModal.nextPlayers}
+          onContinue={() => {
+            const updatedConfirmed = confirmedSetTransitions.includes(setTransitionModal.nextSetKey)
+              ? confirmedSetTransitions
+              : [...confirmedSetTransitions, setTransitionModal.nextSetKey];
+            setConfirmedSetTransitions(updatedConfirmed);
+            setSetTransitionModal(prev => ({ ...prev, isOpen: false }));
+            persistAuctionSnapshot({ confirmedSetTransitions: updatedConfirmed });
+          }}
+        />
+      )}
+
+      {/* ================= AUCTION SET SCHEDULE OVERVIEW DRAWER ================= */}
+      {isSetScheduleOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#0C1527] border-2 border-amber-500/50 rounded-3xl p-4 space-y-3 max-h-[80vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-sm font-black text-white uppercase">17-Set Auction Schedule</span>
+              <button onClick={() => setIsSetScheduleOpen(false)} className="p-1 text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 text-xs">
+              {Array.from(new Set(lots.map(l => `${l.setIndex || 1}::${l.setTitle || l.tier}::${l.setKey || l.tier}`))).map(entry => {
+                const [sIdx, sTitle, sKey] = entry.split('::');
+                const setLots = lots.filter(l => (l.setKey || l.tier) === sKey);
+                const doneCount = setLots.filter(l => l.status !== 'PENDING').length;
+                const isCurrent = (activeLot.setKey || activeLot.tier) === sKey;
+                return (
+                  <div
+                    key={sKey}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                      isCurrent ? 'bg-amber-500/15 border-amber-500/60' : 'bg-[#111C33] border-slate-800'
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold text-white block">Set {sIdx}: {sTitle}</span>
+                      <span className="text-[10px] text-slate-400">{doneCount} / {setLots.length} lots resolved</span>
+                    </div>
+                    {isCurrent && (
+                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-400 text-slate-950">ACTIVE</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
