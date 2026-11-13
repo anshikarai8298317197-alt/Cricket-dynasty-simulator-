@@ -538,6 +538,7 @@ export class CricketMatchEngine {
           overNum,
           striker,
           bowler: currentBowler,
+          bowlingXi: params.bowlingXi,
           battingTactics: params.battingTactics,
           fieldingTactics: params.fieldingTactics,
           pitchCondition,
@@ -560,6 +561,10 @@ export class CricketMatchEngine {
             oversDisplay,
             playerDismissedName: striker.name,
           });
+
+          const isCaught = outcome.dismissalKind === 'CAUGHT';
+          const isBowled = outcome.dismissalKind === 'BOWLED';
+          const fZone = outcome.fielderZone;
 
           const ballEvent: BallEvent = {
             overNumber: overNum,
@@ -599,6 +604,7 @@ export class CricketMatchEngine {
               kind: outcome.dismissalKind || 'CAUGHT',
               dismissedPlayerId: striker.id,
               dismissedPlayerName: striker.name,
+              assistPlayerId: outcome.assistPlayerId,
               assistPlayerName: outcome.assistPlayerName,
               description: outcome.dismissalDesc || 'Out',
             },
@@ -606,22 +612,26 @@ export class CricketMatchEngine {
             teamRuns: totalRuns,
             teamWickets: totalWickets,
             trajectory: {
-              shotType: outcome.dismissalKind === 'BOWLED' ? 'Clean Bowled' : 'Edged / Lofted Wicket',
-              angleDeg: outcome.dismissalKind === 'BOWLED' ? 0 : 35,
-              distancePct: outcome.dismissalKind === 'BOWLED' ? 5 : 60,
-              isLofted: outcome.dismissalKind !== 'BOWLED',
-              targetX: outcome.dismissalKind === 'BOWLED' ? 50 : 42,
-              targetY: outcome.dismissalKind === 'BOWLED' ? 72 : 46,
+              shotType: isBowled ? 'Clean Bowled' : outcome.dismissalKind === 'LBW' ? 'LBW Appeal' : 'Caught in the Field',
+              angleDeg: isBowled ? 0 : 35,
+              distancePct: isBowled ? 5 : isCaught ? 72 : 12,
+              isLofted: isCaught,
+              targetX: isBowled ? 50 : fZone ? fZone.interceptX : 42,
+              targetY: isBowled ? 72 : fZone ? fZone.interceptY : 46,
+              bounceCount: 0,
+              bouncePoints: [],
+              apexHeight: isCaught ? 18 : 0,
             },
             fieldingAction: {
               fielderName: outcome.assistPlayerName || 'Fielder',
-              positionLabel: outcome.dismissalKind === 'BOWLED' ? 'Stumps' : 'Slip/Cover',
-              startX: outcome.dismissalKind === 'BOWLED' ? 50 : 36,
-              startY: outcome.dismissalKind === 'BOWLED' ? 72 : 48,
-              interceptX: outcome.dismissalKind === 'BOWLED' ? 50 : 42,
-              interceptY: outcome.dismissalKind === 'BOWLED' ? 72 : 46,
+              positionLabel: isBowled ? 'Stumps' : fZone?.label || 'Fielder',
+              startX: isBowled ? 50 : fZone ? fZone.startX : 36,
+              startY: isBowled ? 72 : fZone ? fZone.startY : 48,
+              interceptX: isBowled ? 50 : fZone ? fZone.interceptX : 42,
+              interceptY: isBowled ? 72 : fZone ? fZone.interceptY : 46,
               outcome: 'CATCH',
             },
+            drsReview: outcome.drsReview,
           };
           overBalls.push(ballEvent);
           allBalls.push(ballEvent);
@@ -654,34 +664,55 @@ export class CricketMatchEngine {
           let posLabel = 'Pitch';
           let fielderStartX = 50;
           let fielderStartY = 60;
+          let bounceCount = 0;
+          let bouncePoints: { x: number; y: number }[] = [];
+          let apexHeight = 0;
 
           if (runs === 6) {
-            targetX = (striker.battingHand || 'Right Hand').includes('Left') ? 18 : 82;
-            targetY = 12;
+            const leftSide = (striker.battingHand || 'Right Hand').includes('Left');
+            targetX = leftSide ? 16 + rng.next() * 14 : 70 + rng.next() * 14;
+            targetY = 6 + rng.next() * 8;
             distancePct = 100;
             isLofted = true;
+            bounceCount = 0;
+            bouncePoints = [];
+            apexHeight = 28;
             actionType = 'BOUNDARY_SIX';
             posLabel = 'Deep Boundary';
-            fielderStartX = targetX > 50 ? 76 : 24;
-            fielderStartY = 20;
+            fielderStartX = targetX > 50 ? 74 : 26;
+            fielderStartY = 22;
           } else if (runs === 4) {
-            targetX = Math.random() > 0.5 ? 88 : 12;
-            targetY = 44;
-            distancePct = 90;
+            const rightSide = rng.chance(50);
+            targetX = rightSide ? 91 : 9;
+            targetY = 30 + rng.next() * 24;
+            distancePct = 94;
+            isLofted = false;
+            bounceCount = rng.chance(50) ? 2 : 1;
+            const dx = targetX - 50;
+            const dy = targetY - 68;
+            bouncePoints =
+              bounceCount === 2
+                ? [
+                    { x: 50 + dx * 0.34, y: 68 + dy * 0.34 },
+                    { x: 50 + dx * 0.68, y: 68 + dy * 0.68 },
+                  ]
+                : [{ x: 50 + dx * 0.48, y: 68 + dy * 0.48 }];
             actionType = 'BOUNDARY_FOUR';
             posLabel = 'Deep Boundary';
             fielderStartX = targetX > 50 ? 74 : 26;
             fielderStartY = 40;
           } else if (runs === 2 || runs === 3) {
-            targetX = Math.random() > 0.5 ? 72 : 28;
+            targetX = rng.chance(50) ? 72 : 28;
             targetY = 40;
             distancePct = 55;
+            bounceCount = 1;
+            bouncePoints = [{ x: 50 + (targetX - 50) * 0.5, y: 68 + (targetY - 68) * 0.5 }];
             actionType = 'DIVING_SAVE';
             posLabel = 'Deep Mid-wicket';
             fielderStartX = targetX > 50 ? 66 : 34;
             fielderStartY = 48;
           } else if (runs === 1) {
-            targetX = 42 + Math.floor(Math.random() * 16);
+            targetX = 42 + Math.floor(rng.next() * 16);
             targetY = 48;
             distancePct = 40;
             actionType = 'GROUND_PICKUP';
@@ -742,6 +773,9 @@ export class CricketMatchEngine {
               isLofted,
               targetX,
               targetY,
+              bounceCount,
+              bouncePoints,
+              apexHeight,
             },
             fieldingAction: {
               fielderName: 'Fielder',
@@ -866,12 +900,82 @@ export class CricketMatchEngine {
   }
 
   /**
+   * Selects a realistic outfield/ring catcher from the bowling XI (excluding current bowler)
+   */
+  static pickCatchFielderAndZone(
+    bowlingXi: Player[] | undefined,
+    bowlerId: string,
+    rng: SeededPRNG
+  ): {
+    fielderId?: string;
+    fielderName: string;
+    label: string;
+    startX: number;
+    startY: number;
+    interceptX: number;
+    interceptY: number;
+  } {
+    const zones = [
+      { label: 'Deep Mid-wicket', startX: 80, startY: 36, interceptX: 74, interceptY: 31 },
+      { label: 'Long-on', startX: 64, startY: 16, interceptX: 60, interceptY: 22 },
+      { label: 'Long-off', startX: 36, startY: 16, interceptX: 40, interceptY: 22 },
+      { label: 'Deep Cover', startX: 20, startY: 36, interceptX: 26, interceptY: 31 },
+      { label: 'Backward Point', startX: 32, startY: 64, interceptX: 28, interceptY: 60 },
+      { label: 'Cover Point', startX: 36, startY: 46, interceptX: 34, interceptY: 42 },
+      { label: 'First Slip', startX: 43, startY: 76, interceptX: 44, interceptY: 75 },
+      { label: 'Fine Leg', startX: 76, startY: 82, interceptX: 71, interceptY: 78 },
+    ];
+    const zone = zones[Math.floor(rng.next() * zones.length)] || zones[0];
+    const candidates = (bowlingXi || []).filter(p => p.id !== bowlerId);
+    const chosen =
+      candidates.length > 0
+        ? candidates[Math.floor(rng.next() * candidates.length)]
+        : bowlingXi?.[0];
+
+    return {
+      fielderId: chosen?.id,
+      fielderName: chosen?.name || 'Deep Fielder',
+      ...zone,
+    };
+  }
+
+  /**
+   * Generates deterministic LBW Ball-Tracking DRS telemetry
+   */
+  static generateLbwDrsTelemetry(rng: SeededPRNG): NonNullable<BallEvent['drsReview']> {
+    const roll = rng.next();
+    if (roll < 0.34) {
+      // Genuine umpire error -> DRS overturns to NOT OUT
+      const pitchOutLeg = rng.chance(30);
+      const impactOutside = !pitchOutLeg && rng.chance(35);
+      return {
+        pitching: pitchOutLeg ? 'OUTSIDE_LEG' : 'IN_LINE',
+        impact: impactOutside ? 'OUTSIDE_OFF' : 'IN_LINE',
+        wickets: pitchOutLeg || impactOutside ? 'UMPIRES_CALL' : 'MISSING',
+        reviewSuccessPct: Math.round(72 + rng.next() * 20),
+        overturnOnReview: true,
+        originalDecision: 'OUT_LBW',
+      };
+    }
+    const isUmpireCall = rng.chance(28);
+    return {
+      pitching: 'IN_LINE',
+      impact: 'IN_LINE',
+      wickets: isUmpireCall ? 'UMPIRES_CALL' : 'HITTING',
+      reviewSuccessPct: isUmpireCall ? Math.round(35 + rng.next() * 14) : Math.round(8 + rng.next() * 18),
+      overturnOnReview: false,
+      originalDecision: 'OUT_LBW',
+    };
+  }
+
+  /**
    * Probability-based physics outcome calculator
    */
   private static computeDeliveryOutcome(params: {
     overNum: number;
     striker: Player;
     bowler: Player;
+    bowlingXi?: Player[];
     battingTactics?: BattingTacticsConfig;
     fieldingTactics?: FieldingTacticsConfig;
     pitchCondition: string;
@@ -881,11 +985,20 @@ export class CricketMatchEngine {
     isWicket: boolean;
     runs: number;
     dismissalKind?: 'BOWLED' | 'CAUGHT' | 'LBW' | 'RUN_OUT' | 'STUMPED';
+    assistPlayerId?: string;
     assistPlayerName?: string;
+    fielderZone?: {
+      label: string;
+      startX: number;
+      startY: number;
+      interceptX: number;
+      interceptY: number;
+    };
+    drsReview?: BallEvent['drsReview'];
     dismissalDesc?: string;
     commentary: string;
   } {
-    const { overNum, striker, bowler, battingTactics, pitchCondition, currentRrr, rng } = params;
+    const { overNum, striker, bowler, bowlingXi, battingTactics, pitchCondition, currentRrr, rng } = params;
 
     const isPace = !!bowler.paceBowling;
     const isSpin = !!bowler.spinBowling;
@@ -925,13 +1038,16 @@ export class CricketMatchEngine {
       // Wicket occurred! Determine dismissal kind
       const roll = rng.next();
       if (roll < 0.55) {
+        const catchZone = this.pickCatchFielderAndZone(bowlingXi, bowler.id, rng);
         return {
           isWicket: true,
           runs: 0,
           dismissalKind: 'CAUGHT',
-          assistPlayerName: 'Deep Mid-wicket',
-          dismissalDesc: `c Deep Mid-wicket b ${bowler.name}`,
-          commentary: `OUT! ${striker.name} goes for the lofted shot, miscues high in the air, and is caught cleanly!`,
+          assistPlayerId: catchZone.fielderId,
+          assistPlayerName: catchZone.fielderName,
+          fielderZone: catchZone,
+          dismissalDesc: `c ${catchZone.fielderName} b ${bowler.name}`,
+          commentary: `OUT! ${striker.name} goes for the lofted shot, miscues it to ${catchZone.label} where ${catchZone.fielderName} takes a clean catch!`,
         };
       } else if (roll < 0.75) {
         return {
@@ -946,16 +1062,19 @@ export class CricketMatchEngine {
           isWicket: true,
           runs: 0,
           dismissalKind: 'LBW',
+          drsReview: this.generateLbwDrsTelemetry(rng),
           dismissalDesc: `lbw b ${bowler.name}`,
-          commentary: `UP GOES THE FINGER! Trapped right in front of middle stump! ${striker.name} departs LBW.`,
+          commentary: `UP GOES THE FINGER! Trapped right in front of middle stump! ${striker.name} is given LBW.`,
         };
       } else {
+        const keeper = (bowlingXi || []).find(p => p.isWicketkeeper) || bowlingXi?.[0];
         return {
           isWicket: true,
           runs: 0,
           dismissalKind: isSpin ? 'STUMPED' : 'RUN_OUT',
-          assistPlayerName: 'Wicketkeeper',
-          dismissalDesc: isSpin ? `st Wicketkeeper b ${bowler.name}` : `run out (Fielder)`,
+          assistPlayerId: keeper?.id,
+          assistPlayerName: keeper?.name || 'Wicketkeeper',
+          dismissalDesc: isSpin ? `st ${keeper?.name || 'Keeper'} b ${bowler.name}` : `run out (${keeper?.name || 'Fielder'})`,
           commentary: isSpin
             ? `STUMPED! ${striker.name} danced down the track, missed the spinning ball, and the keeper whipped the bails off in a flash!`
             : `RUN OUT! Desperate single called, direct hit at the bowler's end catches the batter short of the crease!`,
@@ -1258,6 +1377,7 @@ export interface LiveInningsState {
   legalBallsInCurrentOver: number;
   runsInCurrentOver: number;
   wicketsInCurrentOver: number;
+  drsReviewsRemaining?: number;
   extras: { total: number; wides: number; noBalls: number; byes: number; legByes: number };
 }
 
@@ -1432,6 +1552,7 @@ export class LiveMatchSession {
       legalBallsInCurrentOver: 0,
       runsInCurrentOver: 0,
       wicketsInCurrentOver: 0,
+      drsReviewsRemaining: 2,
       extras: { total: 0, wides: 0, noBalls: 0, byes: 0, legByes: 0 },
     };
   }
@@ -1655,6 +1776,7 @@ export class LiveMatchSession {
       overNum: currentInnings.currentOverNumber,
       striker,
       bowler,
+      bowlingXi,
       isUserBatting,
       isUserBowling,
       tactics,
@@ -1698,29 +1820,85 @@ export class LiveMatchSession {
     const oversDisplay = `${currentInnings.currentOverNumber}.${currentInnings.legalBallsInCurrentOver}`;
     currentInnings.oversDisplay = oversDisplay;
 
-    // Trajectory coordinates
+    // Rich Physics Trajectory & Fielder Intercept Metadata
     let targetX = 50;
     let targetY = 70;
     let distancePct = 20;
     let isLofted = false;
+    let bounceCount = 0;
+    let bouncePoints: { x: number; y: number }[] = [];
+    let apexHeight = 0;
     let actionType: 'CATCH' | 'GROUND_PICKUP' | 'BOUNDARY_FOUR' | 'BOUNDARY_SIX' | 'DIVING_SAVE' = 'GROUND_PICKUP';
+    let fName = outcome.assistPlayerName || 'Cover / Long-on';
+    let posLabel = 'Deep Field';
+    let fStartX = 65;
+    let fStartY = 50;
 
-    if (runs === 6) {
-      targetX = (striker.battingHand || 'Right Hand').includes('Left') ? 20 : 80;
-      targetY = 12;
+    if (isWicket && outcome.dismissalKind === 'CAUGHT' && outcome.fielderZone) {
+      targetX = outcome.fielderZone.interceptX;
+      targetY = outcome.fielderZone.interceptY;
+      distancePct = 72;
+      isLofted = true;
+      bounceCount = 0;
+      bouncePoints = [];
+      apexHeight = 18;
+      actionType = 'CATCH';
+      fName = outcome.assistPlayerName || 'Fielder';
+      posLabel = outcome.fielderZone.label;
+      fStartX = outcome.fielderZone.startX;
+      fStartY = outcome.fielderZone.startY;
+    } else if (isWicket && outcome.dismissalKind === 'BOWLED') {
+      targetX = 50;
+      targetY = 74;
+      distancePct = 8;
+      isLofted = false;
+      actionType = 'GROUND_PICKUP';
+      fName = 'Wicketkeeper';
+      posLabel = 'Stumps';
+      fStartX = 48;
+      fStartY = 78;
+    } else if (runs === 6) {
+      const leftSide = (striker.battingHand || 'Right Hand').includes('Left');
+      targetX = leftSide ? 16 + this.rng.next() * 14 : 70 + this.rng.next() * 14;
+      targetY = 6 + this.rng.next() * 8;
       distancePct = 100;
       isLofted = true;
+      bounceCount = 0;
+      bouncePoints = [];
+      apexHeight = 28;
       actionType = 'BOUNDARY_SIX';
+      fStartX = targetX > 50 ? 74 : 26;
+      fStartY = 22;
+      posLabel = 'Deep Boundary';
     } else if (runs === 4) {
-      targetX = this.rng.chance(50) ? 86 : 14;
-      targetY = 42;
-      distancePct = 90;
+      const rightSide = this.rng.chance(50);
+      targetX = rightSide ? 91 : 9;
+      targetY = 28 + this.rng.next() * 28;
+      distancePct = 94;
+      isLofted = false;
+      bounceCount = this.rng.chance(50) ? 2 : 1;
+      const dx = targetX - 50;
+      const dy = targetY - 68;
+      bouncePoints =
+        bounceCount === 2
+          ? [
+              { x: 50 + dx * 0.34, y: 68 + dy * 0.34 },
+              { x: 50 + dx * 0.68, y: 68 + dy * 0.68 },
+            ]
+          : [{ x: 50 + dx * 0.48, y: 68 + dy * 0.48 }];
       actionType = 'BOUNDARY_FOUR';
+      fStartX = targetX > 50 ? 74 : 26;
+      fStartY = 40;
+      posLabel = 'Deep Boundary';
     } else if (runs > 0) {
-      targetX = 40 + Math.floor(this.rng.next() * 20);
-      targetY = 48;
+      targetX = 34 + Math.floor(this.rng.next() * 32);
+      targetY = 42 + Math.floor(this.rng.next() * 16);
       distancePct = 45;
-      actionType = 'GROUND_PICKUP';
+      bounceCount = 1;
+      bouncePoints = [{ x: 50 + (targetX - 50) * 0.5, y: 68 + (targetY - 68) * 0.5 }];
+      actionType = runs >= 2 ? 'DIVING_SAVE' : 'GROUND_PICKUP';
+      fStartX = targetX > 50 ? 64 : 36;
+      fStartY = 44;
     }
 
     const ballEvent: BallEvent = {
@@ -1760,6 +1938,8 @@ export class LiveMatchSession {
             kind: outcome.dismissalKind || 'CAUGHT',
             dismissedPlayerId: striker.id,
             dismissedPlayerName: striker.name,
+            assistPlayerId: outcome.assistPlayerId,
+            assistPlayerName: outcome.assistPlayerName,
             description: outcome.dismissalDesc || 'Out',
           }
         : undefined,
@@ -1767,22 +1947,35 @@ export class LiveMatchSession {
       teamRuns: currentInnings.totalRuns,
       teamWickets: currentInnings.totalWickets,
       trajectory: {
-        shotType: runs === 6 ? 'Maximum Six' : runs === 4 ? 'Boundary Four' : runs > 0 ? 'Single' : 'Dot',
+        shotType:
+          isWicket && outcome.dismissalKind === 'CAUGHT'
+            ? 'Caught in Outfield'
+            : runs === 6
+            ? 'Maximum Six'
+            : runs === 4
+            ? 'Boundary Four'
+            : runs > 0
+            ? 'Single'
+            : 'Dot',
         angleDeg: runs === 6 ? 45 : 10,
         distancePct,
         isLofted,
         targetX,
         targetY,
+        bounceCount,
+        bouncePoints,
+        apexHeight,
       },
       fieldingAction: {
-        fielderName: 'Cover / Long-on',
-        positionLabel: 'Deep Field',
-        startX: targetX > 50 ? 65 : 35,
-        startY: 50,
+        fielderName: fName,
+        positionLabel: posLabel,
+        startX: fStartX,
+        startY: fStartY,
         interceptX: targetX,
         interceptY: targetY,
         outcome: actionType,
       },
+      drsReview: outcome.drsReview,
     };
 
     currentInnings.currentOverBalls.push(ballEvent);
@@ -1890,6 +2083,7 @@ export class LiveMatchSession {
     overNum: number;
     striker: Player;
     bowler: Player;
+    bowlingXi?: Player[];
     isUserBatting: boolean;
     isUserBowling: boolean;
     tactics?: LiveTacticsInput;
@@ -1897,10 +2091,20 @@ export class LiveMatchSession {
     isWicket: boolean;
     runs: number;
     dismissalKind?: 'BOWLED' | 'CAUGHT' | 'LBW' | 'RUN_OUT' | 'STUMPED';
+    assistPlayerId?: string;
+    assistPlayerName?: string;
+    fielderZone?: {
+      label: string;
+      startX: number;
+      startY: number;
+      interceptX: number;
+      interceptY: number;
+    };
+    drsReview?: BallEvent['drsReview'];
     dismissalDesc?: string;
     commentary: string;
   } {
-    const { overNum, striker, bowler, isUserBatting, isUserBowling, tactics } = params;
+    const { overNum, striker, bowler, bowlingXi, isUserBatting, isUserBowling, tactics } = params;
 
     const isSpin = !!bowler.spinBowling;
     const isPace = !!bowler.paceBowling;
@@ -1955,12 +2159,16 @@ export class LiveMatchSession {
     if (this.rng.chance(wicketProb)) {
       const roll = this.rng.next();
       if (roll < 0.55) {
+        const catchZone = CricketMatchEngine.pickCatchFielderAndZone(bowlingXi, bowler.id, this.rng);
         return {
           isWicket: true,
           runs: 0,
           dismissalKind: 'CAUGHT',
-          dismissalDesc: `c Deep Field b ${bowler.name}`,
-          commentary: `OUT! ${striker.name} miscues high in the air and is caught comfortably!`,
+          assistPlayerId: catchZone.fielderId,
+          assistPlayerName: catchZone.fielderName,
+          fielderZone: catchZone,
+          dismissalDesc: `c ${catchZone.fielderName} b ${bowler.name}`,
+          commentary: `OUT! ${striker.name} miscues high toward ${catchZone.label}, caught cleanly by ${catchZone.fielderName}!`,
         };
       } else if (roll < 0.78) {
         return {
@@ -1975,17 +2183,21 @@ export class LiveMatchSession {
           isWicket: true,
           runs: 0,
           dismissalKind: 'LBW',
+          drsReview: CricketMatchEngine.generateLbwDrsTelemetry(this.rng),
           dismissalDesc: `lbw b ${bowler.name}`,
-          commentary: `LBW! Plumb in front of middle stump! ${striker.name} has to walk back!`,
+          commentary: `LBW! Plumb in front of middle stump! Umpire raises the finger — ${striker.name} can review!`,
         };
       } else {
+        const keeper = (bowlingXi || []).find(p => p.isWicketkeeper) || bowlingXi?.[0];
         return {
           isWicket: true,
           runs: 0,
           dismissalKind: isSpin ? 'STUMPED' : 'RUN_OUT',
-          dismissalDesc: isSpin ? `st Keeper b ${bowler.name}` : `run out`,
+          assistPlayerId: keeper?.id,
+          assistPlayerName: keeper?.name || 'Keeper',
+          dismissalDesc: isSpin ? `st ${keeper?.name || 'Keeper'} b ${bowler.name}` : `run out (${keeper?.name || 'Fielder'})`,
           commentary: isSpin
-            ? `STUMPED! Stepped out, beaten in flight, lightning bails removed!`
+            ? `STUMPED! Stepped out, beaten in flight, lightning bails removed by ${keeper?.name || 'Keeper'}!`
             : `RUN OUT! Brilliant direct throw at the bowler's end!`,
         };
       }
@@ -2129,6 +2341,185 @@ export class LiveMatchSession {
       this.finalizeMatchResult();
     }
     return this.completedResultDetails!;
+  }
+
+  /**
+   * Lists remaining non-dismissed batters not currently at the non-striker end (for user choice after LBW/wicket)
+   */
+  public getAvailableBattersForNextSlot(): BatterInningsRecord[] {
+    const currentInnings = this.currentInningsNumber === 1 ? this.innings1 : this.innings2;
+    if (!currentInnings) return [];
+    const latestBall = currentInnings.allBalls[currentInnings.allBalls.length - 1];
+    const otherCreaseId =
+      latestBall?.ballInOver === 6
+        ? currentInnings.batters[currentInnings.activeStrikerIdx]?.playerId
+        : currentInnings.batters[currentInnings.activeNonStrikerIdx]?.playerId;
+    return currentInnings.batters.filter(
+      b => !b.isOut && b.playerId !== otherCreaseId
+    );
+  }
+
+  /**
+   * Allows the user to swap which incoming batter walks out after a wicket (without spending ads)
+   */
+  public selectNextBatsmanAfterWicket(batterPlayerId: string): boolean {
+    const currentInnings = this.currentInningsNumber === 1 ? this.innings1 : this.innings2;
+    if (!currentInnings) return false;
+    const targetIdx = currentInnings.batters.findIndex(b => b.playerId === batterPlayerId && !b.isOut);
+    if (targetIdx < 0) return false;
+
+    const latestBall = currentInnings.allBalls[currentInnings.allBalls.length - 1];
+    const wasOverCompleteBall = latestBall?.ballInOver === 6;
+
+    // On normal delivery (not .6), incoming batter sits at activeStrikerIdx.
+    // On .6 end-of-over swap, incoming batter moved to activeNonStrikerIdx.
+    const slotKey = wasOverCompleteBall ? 'activeNonStrikerIdx' : 'activeStrikerIdx';
+    if (currentInnings[slotKey] === targetIdx) return true;
+
+    const currentIncomingIdx = currentInnings[slotKey];
+    if (currentIncomingIdx === currentInnings[wasOverCompleteBall ? 'activeStrikerIdx' : 'activeNonStrikerIdx']) {
+      return false;
+    }
+    // Swap batters array slot positions so order/nextBatterIdx remain completely clean
+    const temp = currentInnings.batters[currentIncomingIdx];
+    currentInnings.batters[currentIncomingIdx] = currentInnings.batters[targetIdx];
+    currentInnings.batters[targetIdx] = temp;
+
+    const battingXi = this.currentInningsNumber === 1 ? this.battingFirstXi : this.bowlingFirstXi;
+    const pTemp = battingXi[currentIncomingIdx];
+    battingXi[currentIncomingIdx] = battingXi[targetIdx];
+    battingXi[targetIdx] = pTemp;
+
+    return true;
+  }
+
+  /**
+   * Resolves an active LBW DRS Review strictly AFTER rewarded ad verification completes.
+   * Overturns only if ball.drsReview.overturnOnReview === true; consumes 1 team review cleanly.
+   */
+  public resolveLbwDrsReview(ball: BallEvent): {
+    reviewed: boolean;
+    overturned: boolean;
+    resolvedDecision: 'UPHELD' | 'OVERTURNED_NOT_OUT';
+    reviewsRemaining: number;
+  } {
+    const currentInnings = this.currentInningsNumber === 1 ? this.innings1 : this.innings2;
+    if (!currentInnings) {
+      return { reviewed: false, overturned: false, resolvedDecision: 'UPHELD', reviewsRemaining: 0 };
+    }
+
+    const availableReviews = currentInnings.drsReviewsRemaining ?? 2;
+    if (availableReviews <= 0) {
+      return { reviewed: false, overturned: false, resolvedDecision: 'UPHELD', reviewsRemaining: 0 };
+    }
+
+    if (ball.drsReview?.resolvedOutcome) {
+      return {
+        reviewed: false,
+        overturned: ball.drsReview.resolvedOutcome === 'OVERTURNED_NOT_OUT',
+        resolvedDecision: ball.drsReview.resolvedOutcome,
+        reviewsRemaining: availableReviews,
+      };
+    }
+
+    currentInnings.drsReviewsRemaining = Math.max(0, availableReviews - 1);
+    const drs = ball.drsReview || CricketMatchEngine.generateLbwDrsTelemetry(this.rng);
+
+    if (!drs.overturnOnReview) {
+      ball.drsReview = { ...drs, resolvedOutcome: 'UPHELD' };
+      ball.commentary = `${ball.commentary} — DRS REVIEW UPHELD: Three Reds! OUT.`;
+      return {
+        reviewed: true,
+        overturned: false,
+        resolvedDecision: 'UPHELD',
+        reviewsRemaining: currentInnings.drsReviewsRemaining,
+      };
+    }
+
+    // OVERTURN LBW TO NOT OUT
+    ball.drsReview = { ...drs, resolvedOutcome: 'OVERTURNED_NOT_OUT' };
+    ball.isWicket = false;
+    ball.dismissal = undefined;
+    ball.commentary = `${ball.commentary} — DRS OVERTURNS! Ball tracking saves ${ball.strikerName}: NOT OUT!`;
+
+    currentInnings.totalWickets = Math.max(0, currentInnings.totalWickets - 1);
+    currentInnings.wicketsInCurrentOver = Math.max(0, currentInnings.wicketsInCurrentOver - 1);
+    ball.teamWickets = currentInnings.totalWickets;
+
+    const bowlerRec = currentInnings.bowlersMap[ball.bowlerId];
+    if (bowlerRec) {
+      bowlerRec.wickets = Math.max(0, bowlerRec.wickets - 1);
+      ball.bowlerWickets = bowlerRec.wickets;
+    }
+
+    const batterRec = currentInnings.batters.find(b => b.playerId === ball.strikerId);
+    if (batterRec) {
+      batterRec.isOut = false;
+      batterRec.dismissalSummary = undefined;
+    }
+
+    // Pop matching fall of wicket entry
+    for (let i = currentInnings.fallOfWickets.length - 1; i >= 0; i--) {
+      if (currentInnings.fallOfWickets[i].playerDismissedName === ball.strikerName) {
+        currentInnings.fallOfWickets.splice(i, 1);
+        break;
+      }
+    }
+
+    // Reconstruct active crease pointers without losing nextBatterIdx turn
+    const reprievedIdx = currentInnings.batters.findIndex(b => b.playerId === ball.strikerId);
+    const otherEndIdx = currentInnings.batters.findIndex(b => b.playerId === ball.nonStrikerId);
+    const incomingIdx = ball.ballInOver === 6 ? currentInnings.activeNonStrikerIdx : currentInnings.activeStrikerIdx;
+    const incomingBatter = currentInnings.batters[incomingIdx];
+
+    if (
+      incomingBatter &&
+      incomingBatter.playerId !== ball.strikerId &&
+      incomingBatter.playerId !== ball.nonStrikerId &&
+      incomingBatter.balls === 0 &&
+      !incomingBatter.isOut &&
+      currentInnings.nextBatterIdx > 2
+    ) {
+      currentInnings.nextBatterIdx -= 1;
+    }
+
+    if (ball.ballInOver === 6) {
+      // End-of-over swap already swapped ends; reconcile last overSummary too
+      const lastSummary = currentInnings.overSummaries[currentInnings.overSummaries.length - 1];
+      if (lastSummary) {
+        lastSummary.wicketsInOver = Math.max(0, lastSummary.wicketsInOver - 1);
+        lastSummary.teamWicketsAtEnd = currentInnings.totalWickets;
+      }
+      if (otherEndIdx >= 0) currentInnings.activeStrikerIdx = otherEndIdx;
+      if (reprievedIdx >= 0) currentInnings.activeNonStrikerIdx = reprievedIdx;
+    } else {
+      if (reprievedIdx >= 0) currentInnings.activeStrikerIdx = reprievedIdx;
+      if (otherEndIdx >= 0) currentInnings.activeNonStrikerIdx = otherEndIdx;
+    }
+
+    // Reopen innings if the overturned LBW was the 10th wicket before 20 overs
+    if (this.currentInningsNumber === 1 && this.status === 'INNINGS_BREAK' && currentInnings.currentOverNumber < 20) {
+      this.status = 'LIVE_INNINGS_1';
+      this.target = null;
+    } else if (
+      this.currentInningsNumber === 2 &&
+      this.status === 'COMPLETED' &&
+      currentInnings.currentOverNumber < 20 &&
+      !(this.target && currentInnings.totalRuns >= this.target)
+    ) {
+      this.status = 'LIVE_INNINGS_2';
+      this.completedResultDetails = null;
+      this.winnerFranchiseId = null;
+      this.loserFranchiseId = null;
+      this.marginDescription = null;
+    }
+
+    return {
+      reviewed: true,
+      overturned: true,
+      resolvedDecision: 'OVERTURNED_NOT_OUT',
+      reviewsRemaining: currentInnings.drsReviewsRemaining,
+    };
   }
 
   public toInningsScorecard(inn: LiveInningsState): InningsScorecard {
@@ -2328,6 +2719,7 @@ export class LiveMatchSession {
         allBalls: Array.isArray(savedInnings.allBalls) ? savedInnings.allBalls : [],
         overSummaries: Array.isArray(savedInnings.overSummaries) ? savedInnings.overSummaries : [],
         currentOverBalls: Array.isArray(savedInnings.currentOverBalls) ? savedInnings.currentOverBalls : [],
+        drsReviewsRemaining: typeof savedInnings.drsReviewsRemaining === 'number' ? savedInnings.drsReviewsRemaining : 2,
         extras: savedInnings.extras || { total: 0, wides: 0, noBalls: 0, byes: 0, legByes: 0 },
       };
     };

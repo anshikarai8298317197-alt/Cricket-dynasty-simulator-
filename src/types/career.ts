@@ -117,6 +117,20 @@ export interface CareerSave {
     read: boolean;
     type?: 'INFO' | 'MATCH' | 'AUCTION' | 'INJURY' | 'ACHIEVEMENT';
   }[];
+
+  // Additive Team Transfer, Daily Bonus & Veteran Extension persistence
+  previousTeamsHistory?: TeamTransferRecord[];
+  lastDailyBonusDateIso?: string;
+  retiredExtensionCounts?: Record<string, number>;
+}
+
+export interface TeamTransferRecord {
+  franchiseId: string;
+  franchiseName: string;
+  fromSeason: number;
+  toSeason: number;
+  transferredAt: number;
+  matchesManaged: number;
 }
 
 export interface DatabaseAuditReport {

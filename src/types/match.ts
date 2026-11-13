@@ -87,6 +87,9 @@ export interface BallEvent {
     isLofted: boolean;
     targetX: number;
     targetY: number;
+    bounceCount?: number;
+    bouncePoints?: { x: number; y: number }[];
+    apexHeight?: number;
   };
   fieldingAction?: {
     fielderName: string;
@@ -96,6 +99,15 @@ export interface BallEvent {
     interceptX: number;
     interceptY: number;
     outcome: 'CATCH' | 'GROUND_PICKUP' | 'BOUNDARY_FOUR' | 'BOUNDARY_SIX' | 'DIVING_SAVE';
+  };
+  drsReview?: {
+    pitching: 'IN_LINE' | 'OUTSIDE_OFF' | 'OUTSIDE_LEG';
+    impact: 'IN_LINE' | 'OUTSIDE_OFF' | 'UMPIRE_CALL';
+    wickets: 'HITTING' | 'UMPIRES_CALL' | 'MISSING';
+    reviewSuccessPct: number;
+    overturnOnReview: boolean;
+    originalDecision: 'OUT_LBW';
+    resolvedOutcome?: 'UPHELD' | 'OVERTURNED_NOT_OUT';
   };
 }
 

@@ -6,19 +6,45 @@ import React, { useState } from 'react';
 import { MatchResultDetails } from '../types/match';
 import { getGlobalTeamById } from '../data/globalLeagues';
 import { FranchiseLogo } from './FranchiseLogo';
-import { Award, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Award, ArrowLeft, CheckCircle2, Video } from 'lucide-react';
+import { LevelPlayService } from '../services/levelPlayService';
 
 interface MatchResultScreenProps {
   matchResult: MatchResultDetails;
   onContinue: () => void;
+  onClaimBroadcastBonus?: (amountCr: number, rewardToken: string) => void;
+  bonusClaimed?: boolean;
 }
 
 export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
   matchResult,
   onContinue,
+  onClaimBroadcastBonus,
+  bonusClaimed = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'SCORECARD' | 'POTM' | 'OVERS'>('SCORECARD');
   const [activeInningsTab, setActiveInningsTab] = useState<1 | 2>(1);
+  const [adBusy, setAdBusy] = useState(false);
+  const [adNote, setAdNote] = useState<string | null>(null);
+
+  const handleContinueWithBreakAd = async () => {
+    await LevelPlayService.tryShowInterstitial('MATCH_RESULT_SCREEN', { protectedFlow: null });
+    onContinue();
+  };
+
+  const handleWatchBonusAd = async () => {
+    if (adBusy || bonusClaimed || !onClaimBroadcastBonus) return;
+    setAdBusy(true);
+    setAdNote(null);
+    const res = await LevelPlayService.showRewardedAd('MATCH_RESULT_BONUS');
+    setAdBusy(false);
+    if (res.completed && res.rewardToken) {
+      onClaimBroadcastBonus(1.0, res.rewardToken);
+      setAdNote('Verified! +₹1.0 Cr Broadcast Bonus credited to your franchise purse.');
+    } else {
+      setAdNote(res.reason || 'Ad not completed — broadcast bonus not granted.');
+    }
+  };
 
   const homeFranchise = getGlobalTeamById(matchResult.homeFranchiseId);
   const awayFranchise = getGlobalTeamById(matchResult.awayFranchiseId);
@@ -35,7 +61,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
       <div className="bg-[#0C1527] border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="flex items-center space-x-3">
           <button
-            onClick={onContinue}
+            onClick={handleContinueWithBreakAd}
             className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -114,6 +140,33 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
             {matchResult.playerOfTheMatch.impactScore} pts
           </span>
         </div>
+
+        {/* Optional Broadcast Bonus Rewarded Ad */}
+        {onClaimBroadcastBonus && (
+          <div className="animate-result-enter-3 p-3 rounded-2xl bg-[#101B33] border border-amber-500/30 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-[11px] font-black text-white block">
+                Post-Match Broadcast Sponsor Bonus
+              </span>
+              <span className="text-[10px] text-amber-300">
+                {bonusClaimed
+                  ? '+₹1.0 Cr Broadcast Bonus already claimed for this match'
+                  : 'Optional: Watch Ad for +₹1.0 Cr Treasury Payout'}
+              </span>
+              {adNote && (
+                <p className="text-[10px] text-slate-300 mt-1">{adNote}</p>
+              )}
+            </div>
+            <button
+              onClick={handleWatchBonusAd}
+              disabled={adBusy || bonusClaimed}
+              className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-45 text-slate-950 font-black text-[10px] uppercase flex items-center space-x-1 shrink-0"
+            >
+              <Video className="w-3.5 h-3.5" />
+              <span>{bonusClaimed ? 'Claimed' : adBusy ? 'Loading...' : 'Watch Ad (+₹1 Cr)'}</span>
+            </button>
+          </div>
+        )}
 
         {/* Sub-Tabs: Scorecard / Overs */}
         <div className="animate-result-enter-4 flex space-x-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800">
@@ -269,7 +322,7 @@ export const MatchResultScreen: React.FC<MatchResultScreenProps> = ({
       {/* Bottom Sticky Action Bar */}
       <div className="animate-result-enter-5 fixed bottom-0 left-0 right-0 bg-[#0C1527]/95 backdrop-blur-md border-t border-slate-800 p-3 flex justify-center">
         <button
-          onClick={onContinue}
+          onClick={handleContinueWithBreakAd}
           className="w-full max-w-md btn-game-gold py-3 rounded-xl uppercase tracking-wider text-xs flex items-center justify-center space-x-2 cursor-pointer"
         >
           <CheckCircle2 className="w-4 h-4 text-slate-950" />

@@ -1,7 +1,7 @@
 /**
  * WICKET DYNASTY - Complete Year-Round Season Calendar, Multi-League, GCL, Trophy Room & Match History Hub
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -15,6 +15,7 @@ import {
   BarChart3,
   CheckCircle2,
   Lock,
+  Zap,
 } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import {
@@ -33,13 +34,17 @@ import {
 } from '../data/globalLeagues';
 import {
   GlobalSeasonEngine,
+  addDaysIso,
   formatShortDateFromIso,
 } from '../services/globalSeasonEngine';
 import { TournamentEngine } from '../services/tournamentEngine';
+import { EnergyService, EnergySnapshot } from '../services/energyService';
+import { LevelPlayService } from '../services/levelPlayService';
 import { FranchiseLogo } from './FranchiseLogo';
 import { PlayoffBracketView } from './PlayoffBracketView';
 import { TrophyArtwork3D } from './TrophyArtwork3D';
 import { PlayerAvatar } from './PlayerAvatar';
+import { OutOfEnergyModal } from './OutOfEnergyModal';
 
 export type SeasonHubSection =
   | 'CALENDAR'
@@ -96,6 +101,24 @@ export const SeasonCalendarHub: React.FC<SeasonCalendarHubProps> = ({
   const [inspectTeamId, setInspectTeamId] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<'USER' | 'ALL'>('USER');
   const [simNotice, setSimNotice] = useState<string | null>(null);
+  const [energySnap, setEnergySnap] = useState<EnergySnapshot>(() => EnergyService.getSnapshot());
+  const [outOfEnergyState, setOutOfEnergyState] = useState<{
+    open: boolean;
+    pausedLabel?: string;
+    completedCount?: number;
+    resumeAction?: () => void;
+  }>({ open: false });
+
+  useEffect(() => {
+    const sync = () => setEnergySnap(EnergyService.getSnapshot());
+    sync();
+    const unsub = EnergyService.subscribe(setEnergySnap);
+    const timer = setInterval(sync, 1000);
+    return () => {
+      unsub();
+      clearInterval(timer);
+    };
+  }, []);
 
   const protectedFixtureId = GlobalSeasonEngine.getActiveProtectedFixtureId();
 
@@ -118,32 +141,275 @@ export const SeasonCalendarHub: React.FC<SeasonCalendarHubProps> = ({
   };
 
   const handleSimMatch = () => {
+    const upcoming = GlobalSeasonEngine.getUpcomingScheduledFixtures(ws).filter(
+      item => item.fixture.fixtureId !== protectedFixtureId
+    );
+    if (upcoming.length === 0) {
+      setSimNotice('No scheduled matches remaining right now.');
+      return;
+    }
+
+    const energyRes = EnergyService.consumeEnergy(1);
+    setEnergySnap(energyRes.snapshot);
+    if (!energyRes.success) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: 'Simulate 1 Match',
+        completedCount: 0,
+        resumeAction: () => handleSimMatch(),
+      });
+      return;
+    }
+
     const res = GlobalSeasonEngine.simulateOneMatch(career, allPlayers, false);
     applySimResult(res, 'Match Simulated');
   };
 
   const handleSimDays = (days: number, label: string) => {
-    const res = GlobalSeasonEngine.simulateDays(career, days, allPlayers);
-    applySimResult(res, label);
+    let working = GlobalSeasonEngine.ensureCareerWorldSeason(career, allPlayers);
+    const startIso = working.worldSeason!.currentDateIso;
+    const yearEndIso = `${working.worldSeason!.currentGameYear}-12-31`;
+    const rawTarget = addDaysIso(startIso, days);
+    const targetIso = rawTarget > yearEndIso ? yearEndIso : rawTarget;
+
+    let simCount = 0;
+    let pausedForEnergy = false;
+    const allTrophies: import('../types/globalSeason').CareerTrophy[] = [];
+
+    for (let guard = 0; guard < 360; guard++) {
+      const nextList = GlobalSeasonEngine.getUpcomingScheduledFixtures(working.worldSeason!).filter(
+        item =>
+          item.fixture.fixtureId !== protectedFixtureId &&
+          (item.fixture.matchDateIso || startIso) <= targetIso
+      );
+      if (nextList.length === 0) break;
+
+      const energyRes = EnergyService.consumeEnergy(1);
+      setEnergySnap(energyRes.snapshot);
+      if (!energyRes.success) {
+        pausedForEnergy = true;
+        break;
+      }
+
+      const nextItem = nextList[0];
+      const stepRes = GlobalSeasonEngine.simulateSpecificFixture(
+        working,
+        nextItem.competitionId,
+        nextItem.fixture.fixtureId,
+        allPlayers
+      );
+      working = stepRes.updatedCareer;
+      if (stepRes.simulatedFixture) simCount += 1;
+      if (stepRes.newlyAwardedTrophies?.length) {
+        allTrophies.push(...stepRes.newlyAwardedTrophies);
+      }
+
+      // Advance calendar date smoothly up to completed fixture date
+      const fDate = nextItem.fixture.matchDateIso;
+      if (fDate && fDate > working.worldSeason!.currentDateIso) {
+        working = {
+          ...working,
+          worldSeason: { ...working.worldSeason!, currentDateIso: fDate },
+          currentCareerDate: new Date(`${fDate}T12:00:00`).getTime(),
+        };
+      }
+    }
+
+    if (!pausedForEnergy && working.worldSeason!.currentDateIso < targetIso) {
+      working = {
+        ...working,
+        worldSeason: {
+          ...working.worldSeason!,
+          currentDateIso: targetIso,
+        },
+        currentCareerDate: new Date(`${targetIso}T12:00:00`).getTime(),
+      };
+    }
+
+    applySimResult(
+      { updatedCareer: working, simulatedCount: simCount, newlyAwardedTrophies: allTrophies },
+      pausedForEnergy ? `${label} (Paused — Energy 0/5)` : label
+    );
+
+    if (pausedForEnergy) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: label,
+        completedCount: simCount,
+        resumeAction: () => handleSimDays(days, label),
+      });
+    }
   };
 
   const handleSimLeague = (leagueId: DomesticLeagueId, stageOnly: boolean) => {
-    const res = GlobalSeasonEngine.simulateRemainingLeague(
-      career,
-      leagueId,
-      allPlayers,
-      stageOnly
-    );
+    let working = GlobalSeasonEngine.ensureCareerWorldSeason(career, allPlayers);
     const def = getLeagueDefinition(leagueId);
+    let simCount = 0;
+    let pausedForEnergy = false;
+    const allTrophies: import('../types/globalSeason').CareerTrophy[] = [];
+
+    for (let guard = 0; guard < 120; guard++) {
+      const trn = working.worldSeason!.domesticLeagues[leagueId];
+      const next = trn.fixtures.find(
+        f =>
+          !f.isCompleted &&
+          !f.homeFranchiseId.startsWith('TBD') &&
+          !f.awayFranchiseId.startsWith('TBD') &&
+          f.fixtureId !== protectedFixtureId &&
+          (!stageOnly || f.playoffStage === 'NONE')
+      );
+      if (!next) break;
+
+      const energyRes = EnergyService.consumeEnergy(1);
+      setEnergySnap(energyRes.snapshot);
+      if (!energyRes.success) {
+        pausedForEnergy = true;
+        break;
+      }
+
+      const stepRes = GlobalSeasonEngine.simulateSpecificFixture(
+        working,
+        leagueId,
+        next.fixtureId,
+        allPlayers
+      );
+      working = stepRes.updatedCareer;
+      if (stepRes.simulatedFixture) simCount += 1;
+      if (stepRes.newlyAwardedTrophies?.length) {
+        allTrophies.push(...stepRes.newlyAwardedTrophies);
+      }
+    }
+
     applySimResult(
-      res,
-      stageOnly ? `${def.shortName} League Stage` : `${def.shortName} Completed`
+      { updatedCareer: working, simulatedCount: simCount, newlyAwardedTrophies: allTrophies },
+      pausedForEnergy
+        ? `${def.shortName} Paused (Out of Energy)`
+        : stageOnly
+        ? `${def.shortName} League Stage`
+        : `${def.shortName} Completed`
     );
+
+    const finishedTrn = working.worldSeason?.domesticLeagues[leagueId];
+    if (!pausedForEnergy && finishedTrn?.playoffs?.championFranchiseId) {
+      void LevelPlayService.tryShowInterstitial('TOURNAMENT_END_SUMMARY', { protectedFlow: null });
+    }
+
+    if (pausedForEnergy) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: `Simulate ${def.shortName}`,
+        completedCount: simCount,
+        resumeAction: () => handleSimLeague(leagueId, stageOnly),
+      });
+    }
   };
 
   const handleSimFullSeason = () => {
-    const res = GlobalSeasonEngine.simulateEntireSeason(career, allPlayers);
-    applySimResult(res, 'Full Year Season Simulated');
+    let working = GlobalSeasonEngine.ensureCareerWorldSeason(career, allPlayers);
+    let simCount = 0;
+    let pausedForEnergy = false;
+    const allTrophies: import('../types/globalSeason').CareerTrophy[] = [];
+
+    // 1. Complete domestic leagues fixture by fixture respecting energy
+    for (const def of DOMESTIC_LEAGUES) {
+      if (pausedForEnergy) break;
+      for (let guard = 0; guard < 120; guard++) {
+        const trn = working.worldSeason!.domesticLeagues[def.id];
+        const next = trn.fixtures.find(
+          f =>
+            !f.isCompleted &&
+            !f.homeFranchiseId.startsWith('TBD') &&
+            !f.awayFranchiseId.startsWith('TBD') &&
+            f.fixtureId !== protectedFixtureId
+        );
+        if (!next) break;
+
+        const energyRes = EnergyService.consumeEnergy(1);
+        setEnergySnap(energyRes.snapshot);
+        if (!energyRes.success) {
+          pausedForEnergy = true;
+          break;
+        }
+
+        const res = GlobalSeasonEngine.simulateSpecificFixture(working, def.id, next.fixtureId, allPlayers);
+        working = res.updatedCareer;
+        if (res.simulatedFixture) simCount += 1;
+        if (res.newlyAwardedTrophies?.length) {
+          allTrophies.push(...res.newlyAwardedTrophies);
+        }
+      }
+    }
+
+    // 2. Generate GCL if all domestic leagues done and GCL not yet generated
+    if (!pausedForEnergy && !working.worldSeason!.championsLeague) {
+      const { worldSeason } = GlobalSeasonEngine.generateChampionsLeague(
+        working.worldSeason!,
+        allPlayers,
+        working
+      );
+      working = {
+        ...working,
+        seasonPhase: 'Champions League',
+        worldSeason: {
+          ...worldSeason,
+          currentDateIso: `${worldSeason.currentGameYear}-10-02`,
+        },
+        currentCareerDate: new Date(`${worldSeason.currentGameYear}-10-02T12:00:00`).getTime(),
+      };
+    }
+
+    // 3. Complete GCL matches fixture by fixture respecting energy
+    if (!pausedForEnergy && working.worldSeason!.championsLeague) {
+      for (let guard = 0; guard < 60; guard++) {
+        const gclCur = working.worldSeason!.championsLeague;
+        if (!gclCur) break;
+        const next = gclCur.fixtures.find(
+          f =>
+            !f.isCompleted &&
+            !f.homeFranchiseId.startsWith('TBD') &&
+            !f.awayFranchiseId.startsWith('TBD') &&
+            f.fixtureId !== protectedFixtureId
+        );
+        if (!next) break;
+
+        const energyRes = EnergyService.consumeEnergy(1);
+        setEnergySnap(energyRes.snapshot);
+        if (!energyRes.success) {
+          pausedForEnergy = true;
+          break;
+        }
+
+        const res = GlobalSeasonEngine.simulateSpecificFixture(
+          working,
+          'GCL_T20',
+          next.fixtureId,
+          allPlayers
+        );
+        working = res.updatedCareer;
+        if (res.simulatedFixture) simCount += 1;
+        if (res.newlyAwardedTrophies?.length) {
+          allTrophies.push(...res.newlyAwardedTrophies);
+        }
+      }
+    }
+
+    applySimResult(
+      { updatedCareer: working, simulatedCount: simCount, newlyAwardedTrophies: allTrophies },
+      pausedForEnergy ? 'Season Sim Paused (Out of Energy)' : 'Full Year Season Simulated'
+    );
+
+    if (!pausedForEnergy && working.worldSeason?.championsLeague?.status === 'COMPLETED') {
+      void LevelPlayService.tryShowInterstitial('SEASON_END_SUMMARY', { protectedFlow: null });
+    }
+
+    if (pausedForEnergy) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: 'Simulate Entire Season',
+        completedCount: simCount,
+        resumeAction: () => handleSimFullSeason(),
+      });
+    }
   };
 
   const handleGenerateGcl = () => {
@@ -170,7 +436,8 @@ export const SeasonCalendarHub: React.FC<SeasonCalendarHubProps> = ({
     setSimNotice('Global Champions League T20 Draw Generated');
   };
 
-  const handleStartNextYear = () => {
+  const handleStartNextYear = async () => {
+    await LevelPlayService.tryShowInterstitial('SEASON_END_SUMMARY', { protectedFlow: null });
     const { updatedCareer } = GlobalSeasonEngine.advanceToNextCalendarYear(
       career,
       allPlayers
@@ -190,9 +457,22 @@ export const SeasonCalendarHub: React.FC<SeasonCalendarHubProps> = ({
       fixture.homeFranchiseId === career.franchiseId ||
       fixture.awayFranchiseId === career.franchiseId;
     if (isUser) {
+      // Manual Live 2D match playback always consumes 0 energy
       onPlayLiveMatch(fixture, compId);
       return;
     }
+    const energyRes = EnergyService.consumeEnergy(1);
+    setEnergySnap(energyRes.snapshot);
+    if (!energyRes.success) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: 'Simulate Fixture',
+        completedCount: 0,
+        resumeAction: () => handlePlayOrSimFixture(fixture, compId),
+      });
+      return;
+    }
+
     const res = GlobalSeasonEngine.simulateSpecificFixture(
       career,
       compId,
@@ -265,13 +545,32 @@ export const SeasonCalendarHub: React.FC<SeasonCalendarHubProps> = ({
             </p>
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <span className="text-[11px] font-mono font-black text-emerald-400 tabular-nums block">
-            {permanentTrophies.length} Trophies
-          </span>
-          <span className="text-[10px] text-slate-400 font-mono tabular-nums">
-            {upcomingFixtures.length} Scheduled
-          </span>
+        <div className="flex items-center space-x-2 shrink-0">
+          <button
+            onClick={() => setOutOfEnergyState({ open: true })}
+            className={`px-2 py-1 rounded-xl border text-[10px] font-black font-mono flex items-center space-x-1 transition-all ${
+              energySnap.energy === 0
+                ? 'bg-red-500/20 border-red-500/50 text-red-300'
+                : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+            }`}
+            title="Match Simulation Energy"
+          >
+            <Zap className="w-3 h-3" />
+            <span>{energySnap.energy}/{energySnap.maxEnergy}</span>
+            {!energySnap.isFull && (
+              <span className="text-[9px] text-slate-300 tabular-nums">
+                ({energySnap.nextEnergyFormatted})
+              </span>
+            )}
+          </button>
+          <div className="text-right">
+            <span className="text-[11px] font-mono font-black text-emerald-400 tabular-nums block">
+              {permanentTrophies.length} Trophies
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono tabular-nums">
+              {upcomingFixtures.length} Scheduled
+            </span>
+          </div>
         </div>
       </header>
 
@@ -1533,6 +1832,15 @@ export const SeasonCalendarHub: React.FC<SeasonCalendarHubProps> = ({
           </div>
         </div>
       )}
+      {/* Out of Energy & Recharge Modal (Part 8) */}
+      <OutOfEnergyModal
+        isOpen={outOfEnergyState.open}
+        onClose={() => setOutOfEnergyState({ open: false })}
+        pausedAutoPlayLabel={outOfEnergyState.pausedLabel}
+        matchesCompletedInLoop={outOfEnergyState.completedCount}
+        onResumeAutoPlay={outOfEnergyState.resumeAction}
+        onEnergyUpdated={setEnergySnap}
+      />
     </div>
   );
 };

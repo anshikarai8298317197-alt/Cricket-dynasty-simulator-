@@ -54,6 +54,7 @@ import { PlayerMilestoneEvent } from './services/milestoneService';
 import { SeasonCalendarHub, SeasonHubSection } from './components/SeasonCalendarHub';
 import { TrophyCelebrationModal } from './components/TrophyCelebrationModal';
 import { GlobalSeasonEngine } from './services/globalSeasonEngine';
+import { LevelPlayService } from './services/levelPlayService';
 import { CareerTrophy, CompetitionId } from './types/globalSeason';
 import { getGlobalTeamById, getGlobalTeamSquad } from './data/globalLeagues';
 
@@ -131,9 +132,11 @@ export default function App() {
     };
   }, []);
 
-  // Boot: Hydrate IndexedDB -> localStorage mirrors, load active career & draft
+  // Boot: Initialize LevelPlay Ads SDK (single-init guard), hydrate IndexedDB -> localStorage mirrors, load active career & draft
   useEffect(() => {
     let cancelled = false;
+    LevelPlayService.initialize();
+
     const loadSavedCareer = () => {
       const saved = StorageService.getActiveCareer();
       if (saved && !cancelled) {
@@ -660,6 +663,46 @@ export default function App() {
     }
   };
 
+  // Optional Rewarded Ad Broadcast Bonus on Match Result Screen (idempotent per matchId + rewardToken)
+  const handleClaimBroadcastBonus = (amountCr: number, rewardToken: string) => {
+    if (!activeCareer || !activeMatchResult || !rewardToken) return;
+    const matchKey = `match_bonus_${activeCareer.id}_${activeMatchResult.matchId}`;
+    const tokenKey = `match_bonus_tok_${rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(matchKey) || DbPersistence.hasProcessedEvent(tokenKey)) {
+      return;
+    }
+    DbPersistence.markEventProcessed(matchKey);
+    DbPersistence.markEventProcessed(tokenKey);
+
+    const profile = activeCareer.clubProfile;
+    const updatedProfile = profile
+      ? {
+          ...profile,
+          financialLedger: [
+            {
+              id: `tx_bcast_${Date.now()}`,
+              careerId: activeCareer.id,
+              seasonNumber: activeCareer.currentSeason,
+              type: 'INCOME' as const,
+              category: 'SPONSORSHIP' as const,
+              amountCr,
+              timestamp: Date.now(),
+              dateStr: activeCareer.worldSeason?.currentDateIso || 'Match Day',
+              description: `Post-Match Broadcast Sponsor Bonus (${activeMatchResult.fixtureId})`,
+            },
+            ...(profile.financialLedger || []),
+          ],
+        }
+      : profile;
+
+    handleUpdateCareer({
+      ...activeCareer,
+      purseBalanceCr: Number((activeCareer.purseBalanceCr + amountCr).toFixed(2)),
+      clubProfile: updatedProfile,
+      lastPlayedAt: Date.now(),
+    });
+  };
+
   // Active franchise reference
   const activeFranchise = activeCareer
     ? FRANCHISES.find(f => f.id === activeCareer.franchiseId)
@@ -861,6 +904,13 @@ export default function App() {
             <MatchResultScreen
               matchResult={activeMatchResult}
               onContinue={handleCommitMatchResult}
+              onClaimBroadcastBonus={handleClaimBroadcastBonus}
+              bonusClaimed={Boolean(
+                activeCareer &&
+                  DbPersistence.hasProcessedEvent(
+                    `match_bonus_${activeCareer.id}_${activeMatchResult.matchId}`
+                  )
+              )}
             />
           )}
 

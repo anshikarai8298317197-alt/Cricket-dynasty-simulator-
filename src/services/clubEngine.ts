@@ -15,6 +15,7 @@ import {
   StadiumFacility,
   YouthProspect,
 } from '../types/club';
+import { DbPersistence } from './dbPersistence';
 
 export class ClubEngine {
   /**
@@ -626,19 +627,21 @@ export class ClubEngine {
         current.fielding.agility = Math.max(60, current.fielding.agility - 1);
       }
 
-      // Retirement Rule: At age 40
+      // Retirement Rule: At age 40 (up to max 42 with max 2 extensions)
       if (current.age >= 40) {
-        // Check if player has rewarded extensions left (max 2 extensions, max age 42)
         const archiveRecord = profile.retiredArchive?.find(r => r.playerId === current.id);
-        const extensionsUsed = archiveRecord?.extensionsUsed || 0;
+        const recordedExtensions = Math.max(
+          archiveRecord?.extensionsUsed || 0,
+          career.retiredExtensionCounts?.[current.id] || 0
+        );
 
-        if (current.age < 42 && extensionsUsed < 2) {
-          // Player receives 1-year career extension
+        if (current.age < 42 && recordedExtensions > 0 && recordedExtensions <= 2) {
+          // Player has an approved extension active -> continues up to max age 42
           extended.push(current);
           remainingSquadIds.push(current.id);
           overrides[current.id] = current;
         } else {
-          // Hard retirement at 40 (or 42 if extended)
+          // Hard retirement at 40 (or 42 if extended twice)
           newlyRetired.push(current);
 
           const retRecord: RetiredPlayerRecord = {
@@ -656,7 +659,7 @@ export class ClubEngine {
             trophiesWon: career.statsSummary.trophies || 1,
             orangeCaps: 0,
             purpleCaps: 0,
-            extensionsUsed: extensionsUsed + 1,
+            extensionsUsed: recordedExtensions,
           };
 
           profile.retiredArchive = [retRecord, ...(profile.retiredArchive || [])];
@@ -680,6 +683,275 @@ export class ClubEngine {
       updatedCareer,
       retiredPlayers: newlyRetired,
       extendedPlayers: extended,
+    };
+  }
+
+  /**
+   * Claims Daily Franchise Bonus (once per career date). Optional ad doubles reward & recovers +5 stamina.
+   */
+  static claimDailyBonus(
+    career: CareerSave,
+    isAdDoubled: boolean,
+    rewardToken?: string
+  ): { updatedCareer: CareerSave; rewardCr: number; message: string } {
+    const todayKey = career.worldSeason?.currentDateIso || new Date().toISOString().slice(0, 10);
+    if (career.lastDailyBonusDateIso === todayKey) {
+      throw new Error('Daily franchise bonus already claimed for today.');
+    }
+
+    if (isAdDoubled) {
+      if (!rewardToken) throw new Error('Missing verified ad reward token.');
+      const dedupeKey = `club_daily_${career.id}_${rewardToken}`;
+      if (DbPersistence.hasProcessedEvent(dedupeKey)) {
+        throw new Error('Daily bonus reward token already processed.');
+      }
+      DbPersistence.markEventProcessed(dedupeKey);
+    }
+
+    const rewardCr = isAdDoubled ? 1.0 : 0.4;
+    const profile = (career.clubProfile || this.generateInitialClubProfile(career as any, career.id)) as ClubProfile;
+    const tx: FinancialTransaction = {
+      id: `tx_daily_${Date.now()}`,
+      careerId: career.id,
+      seasonNumber: career.currentSeason,
+      type: 'INCOME',
+      category: 'SPONSORSHIP',
+      amountCr: rewardCr,
+      timestamp: Date.now(),
+      dateStr: todayKey,
+      description: isAdDoubled
+        ? `2x Sponsored Daily Franchise Bonus (+₹${rewardCr} Cr)`
+        : `Daily Franchise Operations Grant (+₹${rewardCr} Cr)`,
+    };
+
+    const updatedWorkloads = { ...(career.playerWorkloads || {}) };
+    if (isAdDoubled) {
+      career.squadPlayerIds.forEach(id => {
+        const cur = updatedWorkloads[id] || {
+          playerId: id,
+          stamina: 85,
+          fatigue: 12,
+          injuryRisk: 'LOW' as const,
+          isInjured: false,
+          daysInjuredRemaining: 0,
+          formScore: 80,
+          moraleScore: 78,
+        };
+        updatedWorkloads[id] = {
+          ...cur,
+          moraleScore: Math.min(99, (cur.moraleScore ?? 78) + 3),
+        };
+      });
+    }
+
+    return {
+      updatedCareer: {
+        ...career,
+        purseBalanceCr: Number((career.purseBalanceCr + rewardCr).toFixed(2)),
+        lastDailyBonusDateIso: todayKey,
+        playerWorkloads: updatedWorkloads,
+        clubProfile: {
+          ...profile,
+          financialLedger: [tx, ...(profile.financialLedger || [])],
+        },
+        lastPlayedAt: Date.now(),
+      },
+      rewardCr,
+      message: isAdDoubled
+        ? `+₹${rewardCr} Cr & +3 squad morale added from 2x Sponsored Bonus!`
+        : `+₹${rewardCr} Cr Daily Operations Bonus added to purse!`,
+    };
+  }
+
+  /**
+   * Grants +₹2.5 Cr Stadium Sponsor Grant via optional rewarded ad
+   */
+  static grantAdFacilitySponsor(career: CareerSave, rewardToken: string): CareerSave {
+    if (!rewardToken) throw new Error('Missing reward token.');
+    const dedupeKey = `club_fac_${career.id}_${rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) {
+      throw new Error('Facility sponsor token already redeemed.');
+    }
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const profile = (career.clubProfile || this.generateInitialClubProfile(career as any, career.id)) as ClubProfile;
+    const grantCr = 2.5;
+    const tx: FinancialTransaction = {
+      id: `tx_fac_ad_${Date.now()}`,
+      careerId: career.id,
+      seasonNumber: career.currentSeason,
+      type: 'INCOME',
+      category: 'SPONSORSHIP',
+      amountCr: grantCr,
+      timestamp: Date.now(),
+      dateStr: career.worldSeason?.currentDateIso || 'Today',
+      description: 'Stadium Infrastructure Partner Grant (Sponsored)',
+    };
+
+    return {
+      ...career,
+      purseBalanceCr: Number((career.purseBalanceCr + grantCr).toFixed(2)),
+      clubProfile: {
+        ...profile,
+        financialLedger: [tx, ...(profile.financialLedger || [])],
+      },
+      lastPlayedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Generates a boosted Wonderkid Youth Prospect via optional rewarded ad
+   */
+  static grantAdYouthProspect(career: CareerSave, rewardToken: string): { updatedCareer: CareerSave; prospect: YouthProspect } {
+    if (!rewardToken) throw new Error('Missing reward token.');
+    const dedupeKey = `club_youth_${career.id}_${rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) {
+      throw new Error('Youth boost reward token already redeemed.');
+    }
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const profile = (career.clubProfile || this.generateInitialClubProfile(career as any, career.id)) as ClubProfile;
+    const prospect = this.generateYouthProspect(
+      Math.min(6, (profile.academyLevel || 3) + 2),
+      2025 + career.currentSeason,
+      undefined,
+      career.franchiseId
+    );
+    prospect.scoutedPotentialBadge = 'Exceptional';
+    prospect.potentialRating = Math.max(88, Math.min(96, prospect.potentialRating + 4));
+
+    return {
+      updatedCareer: {
+        ...career,
+        clubProfile: {
+          ...profile,
+          youthProspects: [prospect, ...(profile.youthProspects || [])].slice(0, 8),
+        },
+        lastPlayedAt: Date.now(),
+      },
+      prospect,
+    };
+  }
+
+  /**
+   * Generates a free high-confidence VIP Scouting Dossier via optional rewarded ad (0 Cr cost)
+   */
+  static grantAdScoutingDossier(
+    career: CareerSave,
+    allPlayers: Player[],
+    rewardToken: string
+  ): { updatedCareer: CareerSave; report: ScoutingReport } {
+    if (!rewardToken) throw new Error('Missing reward token.');
+    const dedupeKey = `club_scout_${career.id}_${rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) {
+      throw new Error('Scouting reward token already redeemed.');
+    }
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const profile = (career.clubProfile || this.generateInitialClubProfile(career as any, career.id)) as ClubProfile;
+    const pool = allPlayers
+      .filter(p => !career.squadPlayerIds.includes(p.id) && p.overallRating >= 78)
+      .sort((a, b) => b.overallRating - a.overallRating);
+    const candidate = pool[Math.floor(Math.random() * Math.min(18, pool.length))] || allPlayers[0];
+
+    const report: ScoutingReport = {
+      id: `rep_vip_${Date.now()}`,
+      player: candidate,
+      scoutedBy: `${profile.scouts[0]?.name || 'Chief Scout'} (VIP Dossier)`,
+      accuracyConfidence: 97,
+      keyNotes: 'VIP analytics dossier unlocked: verified high-impact death/powerplay splits & strong resale demand.',
+      recommendedMaxAuctionCr: Number((candidate.contract.salaryExpectationCr * 1.15).toFixed(2)),
+      dateGenerated: career.worldSeason?.currentDateIso || 'Today',
+    };
+
+    return {
+      updatedCareer: {
+        ...career,
+        clubProfile: {
+          ...profile,
+          scoutingReports: [report, ...(profile.scoutingReports || [])].slice(0, 30),
+        },
+        lastPlayedAt: Date.now(),
+      },
+      report,
+    };
+  }
+
+  /**
+   * Extends a veteran's playing career by +1 year via rewarded ad.
+   * Strictly enforces:
+   * - Eligible age >= 39 (or archived retiree with age <= 41)
+   * - Maximum 2 extensions per player
+   * - Hard upper retirement cap at age 42
+   */
+  static extendVeteranCareerViaAd(
+    career: CareerSave,
+    playerId: string,
+    allPlayers: Player[],
+    rewardToken: string
+  ): { updatedCareer: CareerSave; extensionsUsed: number; playerName: string } {
+    if (!rewardToken) throw new Error('Missing reward token.');
+    const dedupeKey = `club_retire_${career.id}_${playerId}_${rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) {
+      throw new Error('Retirement extension token already redeemed.');
+    }
+
+    const profile = (career.clubProfile || this.generateInitialClubProfile(career as any, career.id)) as ClubProfile;
+    const overrides = { ...(career.careerPlayerOverrides || {}) };
+    const extMap = { ...(career.retiredExtensionCounts || {}) };
+    const archiveIdx = (profile.retiredArchive || []).findIndex(r => r.playerId === playerId);
+    const archiveRec = archiveIdx >= 0 ? profile.retiredArchive[archiveIdx] : undefined;
+
+    const base = allPlayers.find(p => p.id === playerId);
+    const current = overrides[playerId]
+      ? { ...base, ...overrides[playerId] }
+      : base
+      ? { ...base }
+      : undefined;
+
+    const currentAge = current?.age ?? archiveRec?.retirementAge ?? 40;
+    const prevExtensions = Math.max(extMap[playerId] || 0, archiveRec?.extensionsUsed || 0);
+
+    if (prevExtensions >= 2) {
+      throw new Error('Maximum of 2 career extensions already used for this player.');
+    }
+    if (currentAge >= 42) {
+      throw new Error('Hard career retirement cap (age 42) has been reached.');
+    }
+    if (currentAge < 39 && archiveIdx < 0) {
+      throw new Error('Career extensions unlock once a veteran reaches age 39+.');
+    }
+
+    DbPersistence.markEventProcessed(dedupeKey);
+    const nextExtensions = prevExtensions + 1;
+    extMap[playerId] = nextExtensions;
+
+    const updatedSquad = career.squadPlayerIds.includes(playerId)
+      ? career.squadPlayerIds
+      : [...career.squadPlayerIds, playerId];
+
+    const updatedArchive = archiveIdx >= 0
+      ? profile.retiredArchive.filter((_, i) => i !== archiveIdx)
+      : profile.retiredArchive;
+
+    if (current) {
+      overrides[playerId] = current;
+    }
+
+    return {
+      updatedCareer: {
+        ...career,
+        squadPlayerIds: updatedSquad,
+        careerPlayerOverrides: overrides,
+        retiredExtensionCounts: extMap,
+        clubProfile: {
+          ...profile,
+          retiredArchive: updatedArchive,
+        },
+        lastPlayedAt: Date.now(),
+      },
+      extensionsUsed: nextExtensions,
+      playerName: current?.name || archiveRec?.name || 'Veteran Player',
     };
   }
 }

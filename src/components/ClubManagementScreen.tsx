@@ -9,6 +9,8 @@ import { TournamentState } from '../types/tournament';
 import { ClubEngine } from '../services/clubEngine';
 import { GlobalSeasonEngine } from '../services/globalSeasonEngine';
 import { InjuryEngine } from '../services/injuryEngine';
+import { LevelPlayService } from '../services/levelPlayService';
+import { DbPersistence } from '../services/dbPersistence';
 import { FRANCHISES } from '../data/franchises';
 import { ClubProfile } from '../types/club';
 import { FranchiseLogo } from './FranchiseLogo';
@@ -33,6 +35,7 @@ import {
   Calendar,
   AlertTriangle,
   RotateCcw,
+  Video,
 } from 'lucide-react';
 
 interface ClubManagementScreenProps {
@@ -63,6 +66,7 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
   const [activeTab, setActiveTab] = useState<ClubSubTab>('OVERVIEW');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showNextSeasonModal, setShowNextSeasonModal] = useState(false);
+  const [adBusy, setAdBusy] = useState(false);
 
   const franchise = FRANCHISES.find(f => f.id === career.franchiseId) || FRANCHISES[0];
 
@@ -108,10 +112,15 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
     }
   };
 
-  // Squad & Injury tracking
+  // Squad & Injury tracking (reflecting career aging/extension overrides)
   const squadIds = career.squadPlayerIds || [];
   const squadPlayers = squadIds
-    .map(id => allPlayers.find(p => p.id === id))
+    .map(id => {
+      const base = allPlayers.find(p => p.id === id);
+      if (!base) return null;
+      const ovr = career.careerPlayerOverrides?.[id];
+      return ovr ? { ...base, ...ovr } : base;
+    })
     .filter(Boolean) as Player[];
 
   const workloads = career.playerWorkloads || {};
@@ -120,6 +129,7 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
     const w = workloads[p.id];
     return !w?.isInjured && ((w?.stamina || p.fitness || 80) < 60 || (w?.fatigue || 0) > 60);
   });
+  const veteranCandidates = squadPlayers.filter(p => (p.age ?? 0) >= 39 && (p.age ?? 0) < 42);
 
   // 5. Physio Rehab Treatment
   const handlePhysioTreatment = (playerId: string) => {
@@ -143,8 +153,150 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
     }
   };
 
-  // 4. Advance to Next Season
-  const handleConfirmNextSeason = () => {
+  // Rewarded Ad Club Handlers
+  const handleAdFacilitySponsor = async () => {
+    if (adBusy) return;
+    setAdBusy(true);
+    const res = await LevelPlayService.showRewardedAd('FACILITY_UPGRADE_BOOST');
+    setAdBusy(false);
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — facility grant not issued.');
+      return;
+    }
+    try {
+      const updated = ClubEngine.grantAdFacilitySponsor(career, res.rewardToken);
+      onUpdateCareer(updated);
+      notify('Verified! +₹2.5 Cr Infrastructure Sponsor Grant added to purse.');
+    } catch (e: any) {
+      notify(e.message);
+    }
+  };
+
+  const handleAdYouthWonderkid = async () => {
+    if (adBusy) return;
+    setAdBusy(true);
+    const res = await LevelPlayService.showRewardedAd('YOUTH_ACADEMY_BOOST');
+    setAdBusy(false);
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — academy scout boost not granted.');
+      return;
+    }
+    try {
+      const { updatedCareer, prospect } = ClubEngine.grantAdYouthProspect(career, res.rewardToken);
+      onUpdateCareer(updatedCareer);
+      notify(`Wonderkid ${prospect.name} (Pot ${prospect.potentialRating}) discovered!`);
+    } catch (e: any) {
+      notify(e.message);
+    }
+  };
+
+  const handleAdFreeScouting = async () => {
+    if (adBusy) return;
+    setAdBusy(true);
+    const res = await LevelPlayService.showRewardedAd('SCOUTING_BONUS');
+    setAdBusy(false);
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — VIP dossier not unlocked.');
+      return;
+    }
+    try {
+      const { updatedCareer, report } = ClubEngine.grantAdScoutingDossier(career, allPlayers, res.rewardToken);
+      onUpdateCareer(updatedCareer);
+      notify(`Free VIP Dossier unlocked: ${report.player.name} (OVR ${report.player.overallRating})`);
+    } catch (e: any) {
+      notify(e.message);
+    }
+  };
+
+  const handleAdMedicalFastRehab = async (playerId: string, playerName: string) => {
+    if (adBusy) return;
+    const w = workloads[playerId];
+    if (!w?.isInjured) return;
+    setAdBusy(true);
+    const res = await LevelPlayService.showRewardedAd('INJURY_RECOVERY_SPEEDUP');
+    setAdBusy(false);
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — rehab speedup not granted.');
+      return;
+    }
+    const dedupeKey = `club_med_rehab_${career.id}_${playerId}_${res.rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) return;
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const daysLeft = Math.max(0, (w.daysInjuredRemaining ?? w.injuryDetails?.recoveryDaysRemaining ?? 4) - 4);
+    const nextWk = {
+      ...w,
+      isInjured: daysLeft > 0,
+      daysInjuredRemaining: daysLeft,
+      injuryDetails: daysLeft > 0 && w.injuryDetails ? { ...w.injuryDetails, recoveryDaysRemaining: daysLeft } : undefined,
+      injuryType: daysLeft > 0 ? w.injuryType : undefined,
+      injurySeverity: daysLeft > 0 ? w.injurySeverity : undefined,
+      fitness: daysLeft === 0 ? Math.min(100, Math.max(84, (w.fitness || 75) + 15)) : w.fitness,
+    };
+
+    onUpdateCareer({
+      ...career,
+      playerWorkloads: { ...workloads, [playerId]: nextWk },
+      lastPlayedAt: Date.now(),
+    });
+    notify(daysLeft === 0 ? `${playerName} cleared 100% match fit!` : `${playerName} injury reduced (-4 days)!`);
+  };
+
+  const handleAdMedicalCryo = async (playerId: string, playerName: string) => {
+    if (adBusy) return;
+    const w = workloads[playerId] || { playerId, fatigue: 20, fitness: 80, stamina: 70, injuryRiskScore: 5, isInjured: false };
+    setAdBusy(true);
+    const res = await LevelPlayService.showRewardedAd('PLAYER_FATIGUE_RECOVERY');
+    setAdBusy(false);
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — free cryo recovery not granted.');
+      return;
+    }
+    const dedupeKey = `club_med_cryo_${career.id}_${playerId}_${res.rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) return;
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const nextWk = {
+      ...w,
+      fatigue: Math.max(0, (w.fatigue || 0) - 30),
+      stamina: Math.min(100, (w.stamina ?? 75) + 25),
+      fitness: Math.min(100, (w.fitness ?? 80) + 10),
+    };
+
+    onUpdateCareer({
+      ...career,
+      playerWorkloads: { ...workloads, [playerId]: nextWk },
+      lastPlayedAt: Date.now(),
+    });
+    notify(`Free Cryo Recovery completed for ${playerName}!`);
+  };
+
+  const handleAdExtendVeteran = async (playerId: string) => {
+    if (adBusy) return;
+    setAdBusy(true);
+    const res = await LevelPlayService.showRewardedAd('RETIREMENT_EXTENSION');
+    setAdBusy(false);
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — career extension not granted.');
+      return;
+    }
+    try {
+      const { updatedCareer, extensionsUsed, playerName } = ClubEngine.extendVeteranCareerViaAd(
+        career,
+        playerId,
+        allPlayers,
+        res.rewardToken
+      );
+      onUpdateCareer(updatedCareer);
+      notify(`${playerName} career extended (+1 yr, ${extensionsUsed}/2 used, max age 42).`);
+    } catch (e: any) {
+      notify(e.message);
+    }
+  };
+
+  // 4. Advance to Next Season (natural break interstitial)
+  const handleConfirmNextSeason = async () => {
+    await LevelPlayService.tryShowInterstitial('SEASON_END_SUMMARY', { protectedFlow: null });
     const { updatedCareer, retiredPlayers } = GlobalSeasonEngine.advanceToNextCalendarYear(
       career,
       allPlayers
@@ -377,6 +529,22 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
               </span>
             </div>
 
+            {/* Optional Infrastructure Sponsor Grant (FACILITY_UPGRADE_BOOST) */}
+            <div className="p-3 rounded-xl bg-[#101B33] border border-amber-500/30 flex items-center justify-between gap-2">
+              <div>
+                <span className="text-[11px] font-black text-white block">Stadium Sponsor Grant (Optional)</span>
+                <span className="text-[10px] text-slate-400">Watch Ad for +₹2.5 Cr towards facility upgrades</span>
+              </div>
+              <button
+                onClick={handleAdFacilitySponsor}
+                disabled={adBusy}
+                className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black text-[10px] uppercase flex items-center space-x-1 shrink-0"
+              >
+                <Video className="w-3 h-3" />
+                <span>+₹2.5 Cr Ad</span>
+              </button>
+            </div>
+
             <div className="space-y-2.5">
               {profile.stadiumFacilities.map(fac => {
                 const canAfford = career.purseBalanceCr >= fac.upgradeCostCr;
@@ -434,6 +602,22 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
               <span className="text-xs font-mono font-bold text-amber-400">
                 Academy Level {profile.academyLevel}/5
               </span>
+            </div>
+
+            {/* Optional Youth Wonderkid Boost (YOUTH_ACADEMY_BOOST) */}
+            <div className="p-3 rounded-xl bg-[#101B33] border border-purple-500/35 flex items-center justify-between gap-2">
+              <div>
+                <span className="text-[11px] font-black text-white block">Scout Wonderkid Intake (Optional)</span>
+                <span className="text-[10px] text-slate-400">Watch Ad to unlock an Exceptional Potential prospect</span>
+              </div>
+              <button
+                onClick={handleAdYouthWonderkid}
+                disabled={adBusy}
+                className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black text-[10px] uppercase flex items-center space-x-1 shrink-0"
+              >
+                <Video className="w-3 h-3" />
+                <span>Scout Ad</span>
+              </button>
             </div>
 
             <div className="space-y-2.5">
@@ -600,6 +784,15 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
                           <HeartPulse className="w-3 h-3 text-cyan-300" />
                           <span>Cryo Chamber (₹0.10 Cr)</span>
                         </button>
+
+                        <button
+                          onClick={() => handleAdMedicalFastRehab(player.id, player.name)}
+                          disabled={adBusy}
+                          className="col-span-2 py-2 px-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center space-x-1.5"
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                          <span>Watch Ad: Fast-Track Rehab (-4 Days Free)</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -626,21 +819,31 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
                     return (
                       <div
                         key={player.id}
-                        className="p-2.5 rounded-xl bg-[#0F1A30] border border-slate-800 flex items-center justify-between text-xs"
+                        className="p-2.5 rounded-xl bg-[#0F1A30] border border-slate-800 flex items-center justify-between text-xs gap-2"
                       >
-                        <div>
-                          <span className="font-bold text-white block">{player.name}</span>
+                        <div className="min-w-0">
+                          <span className="font-bold text-white block truncate">{player.name}</span>
                           <span className="text-[10px] text-slate-400 font-mono">
                             Stamina: <strong className="text-amber-400">{stamina}%</strong> • Fatigue: {fatigue}
                           </span>
                         </div>
 
-                        <button
-                          onClick={() => handleCryotherapy(player.id)}
-                          className="py-1 px-2.5 rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] hover:bg-cyan-900/60 transition-colors"
-                        >
-                          Cryo Recovery
-                        </button>
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <button
+                            onClick={() => handleAdMedicalCryo(player.id, player.name)}
+                            disabled={adBusy}
+                            className="py-1 px-2 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center space-x-1"
+                          >
+                            <Video className="w-3 h-3" />
+                            <span>Ad Free</span>
+                          </button>
+                          <button
+                            onClick={() => handleCryotherapy(player.id)}
+                            className="py-1 px-2.5 rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] hover:bg-cyan-900/60 transition-colors"
+                          >
+                            Cryo (₹0.1)
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -659,6 +862,22 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
                 <p className="text-[10px] text-slate-400">Dispatch scouts to uncover hidden talents</p>
               </div>
               <span className="text-xs font-mono text-slate-400">{profile.scouts.length} Active Scouts</span>
+            </div>
+
+            {/* Optional Free VIP Scouting Dossier (SCOUTING_BONUS) */}
+            <div className="p-3 rounded-xl bg-[#101B33] border border-amber-500/30 flex items-center justify-between gap-2">
+              <div>
+                <span className="text-[11px] font-black text-white block">Free VIP Scouting Dossier (Optional)</span>
+                <span className="text-[10px] text-slate-400">Watch Ad for a high-rated target report (₹0 Cr)</span>
+              </div>
+              <button
+                onClick={handleAdFreeScouting}
+                disabled={adBusy}
+                className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black text-[10px] uppercase flex items-center space-x-1 shrink-0"
+              >
+                <Video className="w-3 h-3" />
+                <span>Free VIP Ad</span>
+              </button>
             </div>
 
             <div className="space-y-2.5">
@@ -782,8 +1001,44 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
           <div className="space-y-4">
             <div>
               <h3 className="text-xs font-black uppercase text-white">Franchise Hall of Fame</h3>
-              <p className="text-[10px] text-slate-400">Archived legends and retired cricketers</p>
+              <p className="text-[10px] text-slate-400">
+                Veterans retire at Age 40 (Max Age 42 with up to 2 optional extensions)
+              </p>
             </div>
+
+            {/* Senior Veterans Nearing Retirement (Age 39-41) */}
+            {veteranCandidates.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-black uppercase text-amber-400">
+                  Veterans Nearing Retirement Window
+                </h4>
+                {veteranCandidates.map(vet => {
+                  const used = career.retiredExtensionCounts?.[vet.id] || 0;
+                  const maxed = used >= 2 || (vet.age ?? 40) >= 42;
+                  return (
+                    <div
+                      key={vet.id}
+                      className="bg-[#101B33] border border-amber-500/30 rounded-xl p-3 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <span className="font-bold text-white text-xs block">{vet.name}</span>
+                        <span className="text-[10px] text-slate-400">
+                          Age {vet.age} • Extensions Used: {used}/2
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleAdExtendVeteran(vet.id)}
+                        disabled={adBusy || maxed}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-45 text-slate-950 font-black text-[10px] uppercase flex items-center space-x-1 shrink-0"
+                      >
+                        <Video className="w-3 h-3" />
+                        <span>{maxed ? 'Max Extensions (2/2)' : 'Extend +1 Yr (Ad)'}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {profile.retiredArchive.length === 0 ? (
               <div className="bg-[#0F1A30] border border-slate-800 rounded-2xl p-8 text-center text-slate-400 text-xs">
@@ -795,37 +1050,55 @@ export const ClubManagementScreen: React.FC<ClubManagementScreenProps> = ({
               </div>
             ) : (
               <div className="space-y-2.5">
-                {profile.retiredArchive.map(ret => (
-                  <div
-                    key={ret.playerId}
-                    className="bg-[#0F1A30] border border-slate-800 rounded-xl p-3.5 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-white text-xs">{ret.name}</span>
-                      <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
-                        Retired at Age {ret.retirementAge}
-                      </span>
+                {profile.retiredArchive.map(ret => {
+                  const extUsed = Math.max(
+                    ret.extensionsUsed || 0,
+                    career.retiredExtensionCounts?.[ret.playerId] || 0
+                  );
+                  const canExtendRetiree = ret.retirementAge < 42 && extUsed < 2;
+
+                  return (
+                    <div
+                      key={ret.playerId}
+                      className="bg-[#0F1A30] border border-slate-800 rounded-xl p-3.5 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white text-xs">{ret.name}</span>
+                        <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                          Retired at Age {ret.retirementAge} ({extUsed}/2 ext)
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-800 text-[10px] font-mono text-slate-300 text-center">
+                        <div>
+                          <span className="text-slate-400 block">Matches</span>
+                          <span className="font-bold">{ret.careerMatches}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Runs</span>
+                          <span className="font-bold text-amber-400">{ret.careerRuns}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Wickets</span>
+                          <span className="font-bold text-emerald-400">{ret.careerWickets}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Trophies</span>
+                          <span className="font-bold text-purple-400">{ret.trophiesWon}</span>
+                        </div>
+                      </div>
+                      {canExtendRetiree && (
+                        <button
+                          onClick={() => handleAdExtendVeteran(ret.playerId)}
+                          disabled={adBusy}
+                          className="w-full py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-black text-[10px] uppercase flex items-center justify-center space-x-1.5"
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                          <span>Watch Ad: Extend Career +1 Yr (Recall up to Age 42)</span>
+                        </button>
+                      )}
                     </div>
-                    <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-800 text-[10px] font-mono text-slate-300 text-center">
-                      <div>
-                        <span className="text-slate-400 block">Matches</span>
-                        <span className="font-bold">{ret.careerMatches}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Runs</span>
-                        <span className="font-bold text-amber-400">{ret.careerRuns}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Wickets</span>
-                        <span className="font-bold text-emerald-400">{ret.careerWickets}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Trophies</span>
-                        <span className="font-bold text-purple-400">{ret.trophiesWon}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -37,24 +37,32 @@ import {
   Sparkles,
   FastForward,
   RotateCcw,
+  ArrowLeftRight,
+  Gift,
+  Video,
 } from 'lucide-react';
 import { CareerSave } from '../types/career';
 import { Fixture } from '../types/tournament';
 import { CompetitionId } from '../types/globalSeason';
+import { DOMESTIC_LEAGUES, getGlobalTeamById, getGlobalTeamSquad } from '../data/globalLeagues';
 import { FRANCHISES } from '../data/franchises';
-import { getGlobalTeamById, getGlobalTeamSquad } from '../data/globalLeagues';
 import { PLAYERS_DATABASE } from '../data/players';
 import { FranchiseLogo } from './FranchiseLogo';
 import { PlayerAvatar } from './PlayerAvatar';
 import { PlayerProfileModal } from './PlayerProfileModal';
 import { Player } from '../types/player';
-import { GlobalSeasonEngine, toIsoDate } from '../services/globalSeasonEngine';
+import { GlobalSeasonEngine, addDaysIso, toIsoDate } from '../services/globalSeasonEngine';
 import { SquadValidationEngine } from '../services/squadValidationEngine';
 import { InjuryEngine } from '../services/injuryEngine';
+import { ClubEngine } from '../services/clubEngine';
+import { EnergyService, EnergySnapshot } from '../services/energyService';
+import { LevelPlayService } from '../services/levelPlayService';
 import { evaluateCareerAchievements } from '../services/careerAchievements';
 import { DbPersistence } from '../services/dbPersistence';
 import { WinLossTrendChart } from './WinLossTrendChart';
 import { SeasonHubSection } from './SeasonCalendarHub';
+import { OutOfEnergyModal } from './OutOfEnergyModal';
+import { TeamTransferModal } from './TeamTransferModal';
 
 interface CareerOverviewScreenProps {
   career: CareerSave;
@@ -107,6 +115,28 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [isMenuDrawerOpen, setIsMenuDrawerOpen] = useState(false);
   const [showTrainingTip, setShowTrainingTip] = useState(true);
+  const [energySnap, setEnergySnap] = useState<EnergySnapshot>(() => EnergyService.getSnapshot());
+  const [outOfEnergyState, setOutOfEnergyState] = useState<{
+    open: boolean;
+    pausedLabel?: string;
+    completedCount?: number;
+    resumeAction?: () => void;
+  }>({ open: false });
+  const [isTeamTransferOpen, setIsTeamTransferOpen] = useState(false);
+  const [transferBanner, setTransferBanner] = useState<string | null>(null);
+  const [dailyBonusBusy, setDailyBonusBusy] = useState(false);
+  const [dailyBonusMessage, setDailyBonusMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const sync = () => setEnergySnap(EnergyService.getSnapshot());
+    sync();
+    const unsub = EnergyService.subscribe(setEnergySnap);
+    const timer = setInterval(sync, 1000);
+    return () => {
+      unsub();
+      clearInterval(timer);
+    };
+  }, []);
 
   // Team tab filtering & sheet
   const [teamRoleFilter, setTeamRoleFilter] = useState<'ALL' | 'BAT' | 'BWL' | 'AR' | 'WK'>('ALL');
@@ -377,47 +407,382 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
       }
     });
 
-    const baseWithWorkloads: CareerSave = {
-      ...career,
-      playerWorkloads: updatedWorkloads,
-      notifications: newNotifications.slice(0, 30),
-      unreadNotificationsCount: (career.unreadNotificationsCount || 0) + (newNotifications.length - (career.notifications?.length || 0)),
-      lastPlayedAt: Date.now(),
-    };
+    const baseWithWorkloads: CareerSave = GlobalSeasonEngine.ensureCareerWorldSeason(
+      {
+        ...career,
+        playerWorkloads: updatedWorkloads,
+        notifications: newNotifications.slice(0, 30),
+        unreadNotificationsCount:
+          (career.unreadNotificationsCount || 0) +
+          (newNotifications.length - (career.notifications?.length || 0)),
+        lastPlayedAt: Date.now(),
+      },
+      PLAYERS_DATABASE
+    );
 
-    // Simulate all scheduled AI-only matches forward by 1 calendar day (never skips user match or saved live match)
-    const simDayResult = GlobalSeasonEngine.simulateDays(baseWithWorkloads, 1, PLAYERS_DATABASE, true);
-    const updatedCareer = simDayResult.updatedCareer;
+    // Simulate scheduled AI-only matches forward by 1 calendar day, enforcing 1 energy per AI match (off-day training with 0 matches is free)
+    const protectedId = GlobalSeasonEngine.getActiveProtectedFixtureId();
+    const startIso = baseWithWorkloads.worldSeason!.currentDateIso;
+    const yearEndIso = `${baseWithWorkloads.worldSeason!.currentGameYear}-12-31`;
+    const rawTarget = addDaysIso(startIso, 1);
+    const targetIso = rawTarget > yearEndIso ? yearEndIso : rawTarget;
+
+    let working = baseWithWorkloads;
+    let simCount = 0;
+    let pausedForEnergy = false;
+
+    for (let guard = 0; guard < 24; guard++) {
+      const pendingAi = GlobalSeasonEngine.getUpcomingScheduledFixtures(working.worldSeason!).filter(
+        item =>
+          item.fixture.fixtureId !== protectedId &&
+          (item.fixture.matchDateIso || startIso) <= targetIso &&
+          item.fixture.homeFranchiseId !== working.franchiseId &&
+          item.fixture.awayFranchiseId !== working.franchiseId
+      );
+      if (pendingAi.length === 0) break;
+
+      const energyRes = EnergyService.consumeEnergy(1);
+      setEnergySnap(energyRes.snapshot);
+      if (!energyRes.success) {
+        pausedForEnergy = true;
+        break;
+      }
+
+      const nextAi = pendingAi[0];
+      const stepRes = GlobalSeasonEngine.simulateSpecificFixture(
+        working,
+        nextAi.competitionId,
+        nextAi.fixture.fixtureId,
+        PLAYERS_DATABASE
+      );
+      working = stepRes.updatedCareer;
+      if (stepRes.simulatedFixture) simCount += 1;
+    }
+
+    if (!pausedForEnergy && working.worldSeason!.currentDateIso < targetIso) {
+      working = {
+        ...working,
+        worldSeason: {
+          ...working.worldSeason!,
+          currentDateIso: targetIso,
+        },
+        currentCareerDate: new Date(`${targetIso}T12:00:00`).getTime(),
+      };
+    }
 
     if (onUpdateCareer) {
-      onUpdateCareer(updatedCareer);
+      onUpdateCareer(working);
     }
-    const updatedMs = updatedCareer.worldSeason?.currentDateIso
-      ? new Date(`${updatedCareer.worldSeason.currentDateIso}T10:00:00Z`).getTime()
+    const updatedMs = working.worldSeason?.currentDateIso
+      ? new Date(`${working.worldSeason.currentDateIso}T10:00:00Z`).getTime()
       : nextDateMs;
     setSelectedDateMs(updatedMs);
-  };
 
-  // One-click Smart Phase Stepper (14th Match -> Playoffs -> Champions League -> Next Season/Year)
-  const handleAdvancePhaseStep = () => {
-    const res = GlobalSeasonEngine.advanceToNextPlayableStep(career, PLAYERS_DATABASE);
-    if (onUpdateCareer) {
-      onUpdateCareer(res.updatedCareer);
+    if (pausedForEnergy) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: 'Advance Day',
+        completedCount: simCount,
+        resumeAction: () => handleAdvanceDay(),
+      });
     }
   };
 
-  // One-click Fast-Forward straight to the user's next Match Day (eliminates tedious 26-85 day manual clicking)
+  // One-click Smart Phase Stepper (14th Match -> Playoffs -> Champions League -> Next Season/Year) respecting Energy
+  const handleAdvancePhaseStep = async () => {
+    let working = GlobalSeasonEngine.ensureCareerWorldSeason(career, PLAYERS_DATABASE);
+    const phase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+    const protectedId = GlobalSeasonEngine.getActiveProtectedFixtureId();
+    let simCount = 0;
+    let pausedForEnergy = false;
+
+    if (phase.phaseKey === 'SEASON_COMPLETE') {
+      await LevelPlayService.tryShowInterstitial('SEASON_END_SUMMARY', { protectedFlow: null });
+      const { updatedCareer } = GlobalSeasonEngine.advanceToNextCalendarYear(working, PLAYERS_DATABASE);
+      onUpdateCareer?.(updatedCareer);
+      if (updatedCareer.worldSeason?.currentDateIso) {
+        setSelectedDateMs(new Date(`${updatedCareer.worldSeason.currentDateIso}T10:00:00Z`).getTime());
+      }
+      return;
+    }
+
+    if (phase.phaseKey === 'WAITING_IPL_AI_LEAGUE') {
+      for (let guard = 0; guard < 120; guard++) {
+        const next = working.worldSeason!.domesticLeagues.IPL.fixtures.find(
+          f =>
+            f.playoffStage === 'NONE' &&
+            !f.isCompleted &&
+            !f.homeFranchiseId.startsWith('TBD') &&
+            !f.awayFranchiseId.startsWith('TBD') &&
+            f.fixtureId !== protectedId
+        );
+        if (!next) break;
+        const energyRes = EnergyService.consumeEnergy(1);
+        setEnergySnap(energyRes.snapshot);
+        if (!energyRes.success) {
+          pausedForEnergy = true;
+          break;
+        }
+        const res = GlobalSeasonEngine.simulateSpecificFixture(working, 'IPL', next.fixtureId, PLAYERS_DATABASE);
+        working = res.updatedCareer;
+        if (res.simulatedFixture) simCount += 1;
+      }
+      if (!pausedForEnergy) {
+        const afterPhase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+        const q1Iso =
+          afterPhase.userFixture?.matchDateIso ||
+          working.worldSeason!.domesticLeagues.IPL.fixtures.find(f => f.playoffStage === 'QUALIFIER_1')?.matchDateIso;
+        if (q1Iso && q1Iso > working.worldSeason!.currentDateIso) {
+          working = {
+            ...working,
+            worldSeason: { ...working.worldSeason!, currentDateIso: q1Iso },
+            currentCareerDate: new Date(`${q1Iso}T12:00:00`).getTime(),
+          };
+        }
+      }
+    } else if (phase.phaseKey === 'WAITING_IPL_PLAYOFFS') {
+      for (let guard = 0; guard < 10; guard++) {
+        const curPhase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+        if (curPhase.phaseKey !== 'WAITING_IPL_PLAYOFFS') break;
+        const nextAi = curPhase.nextAiFixture;
+        if (!nextAi || nextAi.fixtureId === protectedId) break;
+        const energyRes = EnergyService.consumeEnergy(1);
+        setEnergySnap(energyRes.snapshot);
+        if (!energyRes.success) {
+          pausedForEnergy = true;
+          break;
+        }
+        const res = GlobalSeasonEngine.simulateSpecificFixture(working, 'IPL', nextAi.fixtureId, PLAYERS_DATABASE);
+        working = res.updatedCareer;
+        if (res.simulatedFixture) simCount += 1;
+      }
+      if (!pausedForEnergy) {
+        const afterPhase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+        if (afterPhase.userFixture?.matchDateIso && afterPhase.userFixture.matchDateIso > working.worldSeason!.currentDateIso) {
+          working = {
+            ...working,
+            worldSeason: { ...working.worldSeason!, currentDateIso: afterPhase.userFixture.matchDateIso },
+            currentCareerDate: new Date(`${afterPhase.userFixture.matchDateIso}T12:00:00`).getTime(),
+          };
+        }
+      }
+    } else if (phase.phaseKey === 'IPL_COMPLETE_READY_FOR_GCL') {
+      for (const def of DOMESTIC_LEAGUES) {
+        if (pausedForEnergy) break;
+        if (def.id === 'IPL') continue;
+        for (let guard = 0; guard < 120; guard++) {
+          const trn = working.worldSeason!.domesticLeagues[def.id];
+          if (trn?.playoffs?.championFranchiseId) break;
+          const next = trn.fixtures.find(
+            f =>
+              !f.isCompleted &&
+              !f.homeFranchiseId.startsWith('TBD') &&
+              !f.awayFranchiseId.startsWith('TBD') &&
+              f.fixtureId !== protectedId
+          );
+          if (!next) break;
+          const energyRes = EnergyService.consumeEnergy(1);
+          setEnergySnap(energyRes.snapshot);
+          if (!energyRes.success) {
+            pausedForEnergy = true;
+            break;
+          }
+          const res = GlobalSeasonEngine.simulateSpecificFixture(working, def.id, next.fixtureId, PLAYERS_DATABASE);
+          working = res.updatedCareer;
+          if (res.simulatedFixture) simCount += 1;
+        }
+      }
+      if (!pausedForEnergy && !working.worldSeason!.championsLeague) {
+        const { worldSeason } = GlobalSeasonEngine.generateChampionsLeague(working.worldSeason!, PLAYERS_DATABASE, working);
+        const startGclIso = `${worldSeason.currentGameYear}-10-02`;
+        const nextIso = worldSeason.currentDateIso < startGclIso ? startGclIso : worldSeason.currentDateIso;
+        working = {
+          ...working,
+          seasonPhase: 'Champions League',
+          worldSeason: { ...worldSeason, currentDateIso: nextIso },
+          currentCareerDate: new Date(`${nextIso}T12:00:00`).getTime(),
+        };
+      }
+    } else if (phase.phaseKey === 'WAITING_GCL_AI') {
+      for (let guard = 0; guard < 40; guard++) {
+        const curPhase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+        if (curPhase.phaseKey !== 'WAITING_GCL_AI') break;
+        const nextAi = curPhase.nextAiFixture;
+        if (!nextAi || nextAi.fixtureId === protectedId) break;
+        const energyRes = EnergyService.consumeEnergy(1);
+        setEnergySnap(energyRes.snapshot);
+        if (!energyRes.success) {
+          pausedForEnergy = true;
+          break;
+        }
+        const res = GlobalSeasonEngine.simulateSpecificFixture(working, 'GCL_T20', nextAi.fixtureId, PLAYERS_DATABASE);
+        working = res.updatedCareer;
+        if (res.simulatedFixture) simCount += 1;
+      }
+      if (!pausedForEnergy) {
+        const afterPhase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+        if (afterPhase.userFixture?.matchDateIso && afterPhase.userFixture.matchDateIso > working.worldSeason!.currentDateIso) {
+          working = {
+            ...working,
+            worldSeason: { ...working.worldSeason!, currentDateIso: afterPhase.userFixture.matchDateIso },
+            currentCareerDate: new Date(`${afterPhase.userFixture.matchDateIso}T12:00:00`).getTime(),
+          };
+        }
+      }
+    }
+
+    onUpdateCareer?.(working);
+    if (working.worldSeason?.currentDateIso) {
+      setSelectedDateMs(new Date(`${working.worldSeason.currentDateIso}T10:00:00Z`).getTime());
+    }
+
+    if (pausedForEnergy) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: phase.stageBadge || 'Phase Auto Play',
+        completedCount: simCount,
+        resumeAction: () => handleAdvancePhaseStep(),
+      });
+    }
+  };
+
+  // One-click Fast-Forward straight to the user's next Match Day, consuming 1 energy per simulated AI match
   const handleJumpToNextMatch = () => {
     if (isEmptySquad) {
       onOpenAuctionHub();
       return;
     }
-    const res = GlobalSeasonEngine.advanceToUserNextMatch(career, PLAYERS_DATABASE);
-    if (onUpdateCareer) {
-      onUpdateCareer(res.updatedCareer);
+
+    let working = GlobalSeasonEngine.ensureCareerWorldSeason(career, PLAYERS_DATABASE);
+    const phase = GlobalSeasonEngine.getCareerPhaseProgress(working);
+    if (phase.phaseKey !== 'USER_MATCH_READY' || !phase.userFixture) {
+      void handleAdvancePhaseStep();
+      return;
     }
-    if (res.updatedCareer.worldSeason?.currentDateIso) {
-      setSelectedDateMs(new Date(`${res.updatedCareer.worldSeason.currentDateIso}T10:00:00Z`).getTime());
+
+    const daysToJump = Math.max(0, Math.min(180, phase.daysUntilUserMatch));
+    if (daysToJump <= 0) return;
+
+    const targetIso = phase.userFixture.matchDateIso || addDaysIso(working.worldSeason!.currentDateIso, daysToJump);
+    const protectedId = GlobalSeasonEngine.getActiveProtectedFixtureId();
+
+    let simCount = 0;
+    let pausedForEnergy = false;
+
+    for (let guard = 0; guard < 180; guard++) {
+      const pendingAi = GlobalSeasonEngine.getUpcomingScheduledFixtures(working.worldSeason!).filter(
+        item =>
+          item.fixture.fixtureId !== protectedId &&
+          (item.fixture.matchDateIso || targetIso) <= targetIso &&
+          item.fixture.homeFranchiseId !== working.franchiseId &&
+          item.fixture.awayFranchiseId !== working.franchiseId
+      );
+      if (pendingAi.length === 0) break;
+
+      const energyRes = EnergyService.consumeEnergy(1);
+      setEnergySnap(energyRes.snapshot);
+      if (!energyRes.success) {
+        pausedForEnergy = true;
+        break;
+      }
+
+      const nextAi = pendingAi[0];
+      const stepRes = GlobalSeasonEngine.simulateSpecificFixture(
+        working,
+        nextAi.competitionId,
+        nextAi.fixture.fixtureId,
+        PLAYERS_DATABASE
+      );
+      working = stepRes.updatedCareer;
+      if (stepRes.simulatedFixture) simCount += 1;
+
+      const fDate = nextAi.fixture.matchDateIso;
+      if (fDate && fDate > working.worldSeason!.currentDateIso && fDate <= targetIso) {
+        working = {
+          ...working,
+          worldSeason: { ...working.worldSeason!, currentDateIso: fDate },
+          currentCareerDate: new Date(`${fDate}T12:00:00`).getTime(),
+        };
+      }
+    }
+
+    if (!pausedForEnergy) {
+      // Recover squad stamina & reduce injury days once jump to match day finishes
+      const nextWorkloads = { ...(working.playerWorkloads || {}) };
+      Object.keys(nextWorkloads).forEach(pid => {
+        const w = nextWorkloads[pid];
+        if (!w) return;
+        const recoveredDays = Math.max(0, (w.daysInjuredRemaining || 0) - daysToJump);
+        nextWorkloads[pid] = {
+          ...w,
+          stamina: Math.min(100, (w.stamina ?? 80) + daysToJump * 8),
+          fatigue: Math.max(0, (w.fatigue ?? 15) - daysToJump * 8),
+          isInjured: recoveredDays > 0 ? w.isInjured : false,
+          daysInjuredRemaining: recoveredDays,
+          injuryRisk: 'LOW',
+        };
+      });
+
+      working = {
+        ...working,
+        playerWorkloads: nextWorkloads,
+        worldSeason: {
+          ...working.worldSeason!,
+          currentDateIso: targetIso > working.worldSeason!.currentDateIso ? targetIso : working.worldSeason!.currentDateIso,
+        },
+        currentCareerDate: new Date(
+          `${targetIso > working.worldSeason!.currentDateIso ? targetIso : working.worldSeason!.currentDateIso}T12:00:00`
+        ).getTime(),
+      };
+    }
+
+    onUpdateCareer?.(working);
+    if (working.worldSeason?.currentDateIso) {
+      setSelectedDateMs(new Date(`${working.worldSeason.currentDateIso}T10:00:00Z`).getTime());
+    }
+
+    if (pausedForEnergy) {
+      setOutOfEnergyState({
+        open: true,
+        pausedLabel: 'Sim to Match Day',
+        completedCount: simCount,
+        resumeAction: () => handleJumpToNextMatch(),
+      });
+    }
+  };
+
+  const todayBonusKey = career.worldSeason?.currentDateIso || baseIso;
+  const isDailyBonusClaimed = career.lastDailyBonusDateIso === todayBonusKey;
+
+  const handleClaimDailyBonus = async (useAdDouble: boolean) => {
+    if (isDailyBonusClaimed || dailyBonusBusy || !onUpdateCareer) return;
+    setDailyBonusMessage(null);
+
+    if (!useAdDouble) {
+      try {
+        const res = ClubEngine.claimDailyBonus(career, false);
+        onUpdateCareer(res.updatedCareer);
+        setDailyBonusMessage(res.message);
+      } catch (err: any) {
+        setDailyBonusMessage(err?.message || 'Unable to claim daily bonus.');
+      }
+      return;
+    }
+
+    setDailyBonusBusy(true);
+    try {
+      const adRes = await LevelPlayService.showRewardedAd('DAILY_BONUS');
+      if (adRes.completed && adRes.rewardToken) {
+        const res = ClubEngine.claimDailyBonus(career, true, adRes.rewardToken);
+        onUpdateCareer(res.updatedCareer);
+        setDailyBonusMessage(res.message);
+      } else {
+        setDailyBonusMessage(adRes.reason || 'Ad not completed — 2x bonus not granted.');
+      }
+    } catch (err: any) {
+      setDailyBonusMessage(err?.message || 'Unable to load rewarded ad.');
+    } finally {
+      setDailyBonusBusy(false);
     }
   };
 
@@ -461,8 +826,27 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
           </div>
         </div>
 
-        {/* Right: Notification, Calendar & Menu Icons */}
-        <div className="flex items-center space-x-2">
+        {/* Right: Energy, Notification, Calendar & Menu Icons */}
+        <div className="flex items-center space-x-1.5">
+          {/* Live Simulation Energy Pill */}
+          <button
+            onClick={() => setOutOfEnergyState({ open: true })}
+            className={`px-2 py-1.5 rounded-xl border text-[10px] font-black font-mono flex items-center space-x-1 transition-colors shrink-0 ${
+              energySnap.energy === 0
+                ? 'bg-red-500/20 border-red-500/50 text-red-300'
+                : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:border-amber-400'
+            }`}
+            title="Match Simulation Energy"
+          >
+            <Zap className="w-3 h-3" />
+            <span>{energySnap.energy}/{energySnap.maxEnergy}</span>
+            {!energySnap.isFull && (
+              <span className="text-[9px] text-slate-300 hidden sm:inline tabular-nums">
+                {energySnap.nextEnergyFormatted}
+              </span>
+            )}
+          </button>
+
           {/* Notification Envelope with Unread Badge */}
           <button
             onClick={() => {
@@ -542,6 +926,17 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
         {/* ================= TAB: HUB (Main Home View matching screenshot) ================= */}
         {activeTab === 'HUB' && (
           <div className="space-y-4 max-w-lg mx-auto">
+            {transferBanner && (
+              <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center justify-between gap-2">
+                <span>{transferBanner}</span>
+                <button
+                  onClick={() => setTransferBanner(null)}
+                  className="text-[11px] font-black text-emerald-300 px-2"
+                >
+                  OK
+                </button>
+              </div>
+            )}
             {hasSavedLiveAuction && onResumeLiveAuction && (
               <div className="p-3.5 rounded-2xl bg-amber-950/50 border border-amber-500/50 flex items-center justify-between gap-3 shadow-lg">
                 <div>
@@ -1016,6 +1411,56 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
               </button>
             </div>
 
+            {/* Daily Franchise Bonus Card (DAILY_BONUS Rewarded Ad Optional) */}
+            {!isEmptySquad && (
+              <div className="p-3.5 rounded-2xl bg-[#101C33] border border-amber-500/35 space-y-2.5 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                      <Gift className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-white">Daily Franchise Bonus</h4>
+                      <p className="text-[10px] text-slate-400">
+                        {isDailyBonusClaimed
+                          ? `Claimed for ${todayBonusKey} · Purse ₹${career.purseBalanceCr.toFixed(1)} Cr`
+                          : 'Claim ₹0.4 Cr free or watch 1 ad for 2x (₹1.0 Cr + +3 Morale)'}
+                      </p>
+                    </div>
+                  </div>
+                  {isDailyBonusClaimed && (
+                    <span className="text-[9px] font-black px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 uppercase">
+                      Claimed
+                    </span>
+                  )}
+                </div>
+
+                {!isDailyBonusClaimed && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void handleClaimDailyBonus(false)}
+                      disabled={dailyBonusBusy}
+                      className="flex-1 py-2 px-3 rounded-xl bg-[#091120] border border-slate-700 hover:border-slate-500 text-[11px] font-bold text-slate-200"
+                    >
+                      Claim Free (+₹0.4 Cr)
+                    </button>
+                    <button
+                      onClick={() => void handleClaimDailyBonus(true)}
+                      disabled={dailyBonusBusy}
+                      className="flex-1 py-2 px-3 rounded-xl bg-amber-500/20 border border-amber-400/50 hover:bg-amber-500/30 disabled:opacity-50 text-[11px] font-black text-amber-300 flex items-center justify-center space-x-1"
+                    >
+                      <Video className="w-3.5 h-3.5 shrink-0" />
+                      <span>{dailyBonusBusy ? 'Loading Ad...' : 'Ad: 2x (+₹1.0 Cr)'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {dailyBonusMessage && (
+                  <p className="text-[11px] text-amber-300 font-semibold">{dailyBonusMessage}</p>
+                )}
+              </div>
+            )}
+
             {/* D3.js Win/Loss % Season Form Trend (Last 5 Matches) */}
             <WinLossTrendChart career={career} />
           </div>
@@ -1298,16 +1743,28 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
         {/* ================= TAB: PROFILE (Matches Screenshot_2026-11-10-21-54-58) ================= */}
         {activeTab === 'PROFILE' && (
           <div className="space-y-4 max-w-lg mx-auto">
-            {/* Coach Banner */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-[#121E36] to-[#0A1120] border border-slate-700/60 flex items-center space-x-3">
-              <div className="w-14 h-14 rounded-2xl bg-[#080E1A] border border-amber-500/30 flex items-center justify-center text-amber-400">
-                <User className="w-7 h-7" />
+            {/* Coach Banner + Team Transfer Trigger */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-[#121E36] to-[#0A1120] border border-slate-700/60 space-y-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-14 h-14 rounded-2xl bg-[#080E1A] border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <User className="w-7 h-7" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] font-black uppercase text-amber-400">HEAD COACH</span>
+                  <h3 className="text-base font-black text-white truncate">{career.name}</h3>
+                  <p className="text-xs text-slate-400 font-medium truncate">
+                    {franchise.name} • Season {career.currentSeason}
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-[10px] font-black uppercase text-amber-400">HEAD COACH</span>
-                <h3 className="text-base font-black text-white">{career.name}</h3>
-                <p className="text-xs text-slate-400 font-medium">{franchise.name} • Season {career.currentSeason}</p>
-              </div>
+
+              <button
+                onClick={() => setIsTeamTransferOpen(true)}
+                className="w-full py-2.5 px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 hover:bg-amber-500/25 text-amber-300 font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+                <span>Change Team / Join Another Team</span>
+              </button>
             </div>
 
             {/* Lifetime Stats 2x4 Grid */}
@@ -1329,6 +1786,36 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
                 <h4 className="text-lg font-black text-amber-400 font-mono mt-0.5">{career.statsSummary?.trophies || 0}</h4>
               </div>
             </div>
+
+            {/* Previous Teams / Coaching Stints History */}
+            {(career.previousTeamsHistory || []).length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-[#121E36] border border-slate-800 space-y-2">
+                <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-300">
+                  Former Franchise Stints ({career.previousTeamsHistory!.length})
+                </h4>
+                <div className="space-y-1.5">
+                  {career.previousTeamsHistory!.map((stint, idx) => (
+                    <div
+                      key={`${stint.franchiseId}_${idx}`}
+                      className="p-2.5 rounded-xl bg-[#091120] border border-slate-800 flex items-center justify-between text-xs"
+                    >
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <FranchiseLogo franchiseId={stint.franchiseId} size={22} />
+                        <div className="min-w-0">
+                          <span className="font-bold text-white block truncate">{stint.franchiseName}</span>
+                          <span className="text-[10px] text-slate-400">
+                            Season {stint.fromSeason}–{stint.toSeason}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono text-amber-300 shrink-0">
+                        {stint.matchesManaged} Matches
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Career Achievements & Badges System */}
             <div className="space-y-3 pt-2">
@@ -1683,6 +2170,16 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
                 >
                   <span>Player Database Audit</span>
                 </button>
+                <button
+                  onClick={() => {
+                    setIsMenuDrawerOpen(false);
+                    setIsTeamTransferOpen(true);
+                  }}
+                  className="w-full p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-left text-xs font-black text-amber-300 hover:bg-amber-500/25 flex items-center space-x-2"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span>Change Team / Join Team</span>
+                </button>
               </div>
             </div>
 
@@ -1753,6 +2250,29 @@ export const CareerOverviewScreen: React.FC<CareerOverviewScreenProps> = ({
         player={selectedPlayer}
         isOpen={selectedPlayer !== null}
         onClose={() => setSelectedPlayer(null)}
+      />
+
+      {/* Match Simulation Energy Modal (Part 8) */}
+      <OutOfEnergyModal
+        isOpen={outOfEnergyState.open}
+        onClose={() => setOutOfEnergyState({ open: false })}
+        pausedAutoPlayLabel={outOfEnergyState.pausedLabel}
+        matchesCompletedInLoop={outOfEnergyState.completedCount}
+        onResumeAutoPlay={outOfEnergyState.resumeAction}
+        onEnergyUpdated={setEnergySnap}
+      />
+
+      {/* Team Transfer Modal (Part 10) */}
+      <TeamTransferModal
+        isOpen={isTeamTransferOpen}
+        career={career}
+        allPlayers={PLAYERS_DATABASE}
+        onClose={() => setIsTeamTransferOpen(false)}
+        onTransferComplete={(updatedCareer, destinationName) => {
+          onUpdateCareer?.(updatedCareer);
+          setTransferBanner(`Coaching transfer completed: Welcome to ${destinationName}!`);
+          setActiveTab('HUB');
+        }}
       />
     </div>
   );

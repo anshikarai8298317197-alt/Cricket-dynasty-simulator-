@@ -2,14 +2,17 @@
  * WICKET DYNASTY - Tournament Standings, Fixtures & Leaderboards Hub (SCR_15 / SCR_16)
  * Points Table, Net Run Rate, Calendar Navigation, Complete Multi-Category Leaderboards
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TournamentState, Fixture, PlayerTournamentStats } from '../types/tournament';
 import { CareerSave } from '../types/career';
 import { Player } from '../types/player';
 import { getGlobalTeamById } from '../data/globalLeagues';
 import { TournamentEngine } from '../services/tournamentEngine';
+import { EnergyService, EnergySnapshot } from '../services/energyService';
+import { LevelPlayService } from '../services/levelPlayService';
 import { FranchiseLogo } from './FranchiseLogo';
 import { PlayoffBracketView } from './PlayoffBracketView';
+import { OutOfEnergyModal } from './OutOfEnergyModal';
 import {
   Trophy,
   Calendar,
@@ -74,38 +77,87 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
     'mvpRace' | 'playerOfTheMatchRace' | 'bestAllRounder' | 'emergingPlayer' | 'mostConsistent'
   >('mvpRace');
 
+  const [energySnap, setEnergySnap] = useState<EnergySnapshot>(() => EnergyService.getSnapshot());
+  const [energyModalOpen, setEnergyModalOpen] = useState(false);
+  const [pausedAutoInfo, setPausedAutoInfo] = useState<{ label: string; count: number; resumeMode: 'ROUND' | 'PLAYOFFS' | null }>({
+    label: '',
+    count: 0,
+    resumeMode: null,
+  });
+
+  useEffect(() => {
+    const tick = () => setEnergySnap(EnergyService.getSnapshot());
+    const id = setInterval(tick, 1000);
+    const unsub = EnergyService.subscribe(setEnergySnap);
+    return () => {
+      clearInterval(id);
+      unsub();
+    };
+  }, []);
+
   const leaderboards = TournamentEngine.getLeaderboards(tournament);
 
-  // Fast simulate an AI or Next Match
+  // Fast simulate an AI or Play User Match (Manual Live 2D costs 0 energy!)
   const handleSimulateFixture = (fixture: Fixture) => {
     if (fixture.isCompleted) return;
 
     if (fixture.homeFranchiseId === career.franchiseId || fixture.awayFranchiseId === career.franchiseId) {
       onPlayLiveMatch(fixture);
     } else {
+      const check = EnergyService.consumeEnergy(1);
+      setEnergySnap(check.snapshot);
+      if (!check.success) {
+        setPausedAutoInfo({ label: '', count: 0, resumeMode: null });
+        setEnergyModalOpen(true);
+        return;
+      }
       const result = TournamentEngine.simulateAiFixture(fixture, allPlayers, tournament, career.allFranchiseSquads);
       const updated = TournamentEngine.recordMatchResult(tournament, result);
       onUpdateTournament(updated);
+      if (updated.playoffs?.championFranchiseId && !tournament.playoffs?.championFranchiseId) {
+        LevelPlayService.tryShowInterstitial('TOURNAMENT_END_SUMMARY', { protectedFlow: null });
+      }
     }
   };
 
-  // Fast forward simulate entire current round
+  // Fast forward simulate entire current round (1 energy per match simulated; pauses cleanly at 0)
   const handleSimulateCurrentRound = () => {
     let currentTourn = tournament;
     const pendingInRound = currentTourn.fixtures.filter(
       f => f.roundNumber === selectedRound && !f.isCompleted
     );
 
-    pendingInRound.forEach(f => {
+    let simulatedCount = 0;
+    for (const f of pendingInRound) {
+      const spend = EnergyService.consumeEnergy(1);
+      setEnergySnap(spend.snapshot);
+      if (!spend.success) {
+        if (simulatedCount > 0) {
+          onUpdateTournament(currentTourn);
+        }
+        setPausedAutoInfo({
+          label: `Sim Round ${selectedRound}`,
+          count: simulatedCount,
+          resumeMode: 'ROUND',
+        });
+        setEnergyModalOpen(true);
+        return;
+      }
       const result = TournamentEngine.simulateAiFixture(f, allPlayers, currentTourn, career.allFranchiseSquads);
       currentTourn = TournamentEngine.recordMatchResult(currentTourn, result);
-    });
+      simulatedCount += 1;
+    }
 
     onUpdateTournament(currentTourn);
+    if (currentTourn.playoffs?.championFranchiseId && !tournament.playoffs?.championFranchiseId) {
+      LevelPlayService.tryShowInterstitial('TOURNAMENT_END_SUMMARY', { protectedFlow: null });
+    }
   };
 
   const handleSimulateRemainingPlayoffs = () => {
     let currentTourn = tournament;
+    let simulatedCount = 0;
+
     for (let guard = 0; guard < 10; guard++) {
       const nextPlayoff = currentTourn.fixtures.find(
         f =>
@@ -115,6 +167,22 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
           !f.awayFranchiseId.startsWith('TBD')
       );
       if (!nextPlayoff) break;
+
+      const spend = EnergyService.consumeEnergy(1);
+      setEnergySnap(spend.snapshot);
+      if (!spend.success) {
+        if (simulatedCount > 0) {
+          onUpdateTournament(currentTourn);
+        }
+        setPausedAutoInfo({
+          label: 'Playoff Auto Sim',
+          count: simulatedCount,
+          resumeMode: 'PLAYOFFS',
+        });
+        setEnergyModalOpen(true);
+        return;
+      }
+
       const result = TournamentEngine.simulateAiFixture(
         nextPlayoff,
         allPlayers,
@@ -122,8 +190,13 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
         career.allFranchiseSquads
       );
       currentTourn = TournamentEngine.recordMatchResult(currentTourn, result);
+      simulatedCount += 1;
     }
+
     onUpdateTournament(currentTourn);
+    if (currentTourn.playoffs?.championFranchiseId && !tournament.playoffs?.championFranchiseId) {
+      LevelPlayService.tryShowInterstitial('TOURNAMENT_END_SUMMARY', { protectedFlow: null });
+    }
   };
 
   const filteredFixtures = tournament.fixtures.filter(f => {
@@ -237,12 +310,33 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={onOpenQAModal}
-          className="text-[10px] font-black uppercase text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 hover:bg-amber-500/20"
-        >
-          Engine QA
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => {
+              setPausedAutoInfo({ label: '', count: 0, resumeMode: null });
+              setEnergyModalOpen(true);
+            }}
+            className="flex items-center space-x-1 bg-slate-900 border border-amber-500/30 px-2 py-1 rounded-lg text-[10px] font-mono font-black text-amber-400"
+            title="Match Simulation Energy"
+          >
+            <Zap className="w-3 h-3" />
+            <span>
+              {energySnap.energy}/{energySnap.maxEnergy}
+            </span>
+            {!energySnap.isFull && (
+              <span className="text-[9px] text-slate-400 font-normal">
+                ({energySnap.nextEnergyFormatted})
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={onOpenQAModal}
+            className="text-[10px] font-black uppercase text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 hover:bg-amber-500/20"
+          >
+            Engine QA
+          </button>
+        </div>
       </div>
 
       {/* Primary Sub-Tabs (TABLE / BRACKET / FIXTURES / LEADERBOARDS) */}
@@ -734,6 +828,21 @@ export const TournamentHubScreen: React.FC<TournamentHubScreenProps> = ({
           </div>
         )}
       </div>
+
+      <OutOfEnergyModal
+        isOpen={energyModalOpen}
+        onClose={() => setEnergyModalOpen(false)}
+        pausedAutoPlayLabel={pausedAutoInfo.label || null}
+        matchesCompletedInLoop={pausedAutoInfo.count}
+        onEnergyUpdated={setEnergySnap}
+        onResumeAutoPlay={
+          pausedAutoInfo.resumeMode === 'ROUND'
+            ? handleSimulateCurrentRound
+            : pausedAutoInfo.resumeMode === 'PLAYOFFS'
+            ? handleSimulateRemainingPlayoffs
+            : undefined
+        }
+      />
     </div>
   );
 };

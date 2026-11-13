@@ -17,6 +17,8 @@ import {
 import { TRAINING_PROGRAMMES, DEFAULT_COACHES, INITIAL_TRAINING_FACILITIES, generateInitialSchedule } from '../data/trainingData';
 import { TrainingEngine } from '../services/trainingEngine';
 import { IndividualTrainingModal } from './IndividualTrainingModal';
+import { LevelPlayService } from '../services/levelPlayService';
+import { DbPersistence } from '../services/dbPersistence';
 import {
   ArrowLeft,
   Dumbbell,
@@ -36,6 +38,7 @@ import {
   CheckCircle2,
   RefreshCw,
   Coins,
+  Video,
 } from 'lucide-react';
 
 interface TrainingDashboardProps {
@@ -325,6 +328,125 @@ export const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
     notify(`Treatment applied: ${treatment.replace('_', ' ')}. Fatigue reduced.`);
   };
 
+  // Optional Rewarded Ad: Team Conditioning & Form Boost (TRAINING_BOOST)
+  const [adActionBusy, setAdActionBusy] = useState(false);
+
+  const handleWatchAdTrainingBoost = async () => {
+    if (adActionBusy) return;
+    setAdActionBusy(true);
+    const res = await LevelPlayService.showRewardedAd('TRAINING_BOOST');
+    setAdActionBusy(false);
+
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — conditioning boost not granted.');
+      return;
+    }
+
+    const dedupeKey = `trn_boost_${career.id}_${res.rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) {
+      notify('Reward token already processed.');
+      return;
+    }
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const updatedWkMap = { ...playerWorkloads };
+    squadPlayers.forEach(p => {
+      const cur = updatedWkMap[p.id];
+      if (cur && !cur.isInjured) {
+        updatedWkMap[p.id] = {
+          ...cur,
+          fitness: Math.min(100, cur.fitness + 4),
+          fatigue: Math.max(0, cur.fatigue - 10),
+        };
+      }
+    });
+
+    onUpdateCareer({
+      ...career,
+      playerWorkloads: updatedWkMap,
+      lastPlayedAt: Date.now(),
+    });
+    notify('Verified! Squad fitness +4% & fatigue -10% across healthy roster.');
+  };
+
+  // Optional Rewarded Ad: Free Cryo Fatigue Recovery (PLAYER_FATIGUE_RECOVERY)
+  const handleWatchAdFatigueRecovery = async (playerId: string, playerName: string) => {
+    const currentWk = playerWorkloads[playerId];
+    if (!currentWk || adActionBusy) return;
+    setAdActionBusy(true);
+    const res = await LevelPlayService.showRewardedAd('PLAYER_FATIGUE_RECOVERY');
+    setAdActionBusy(false);
+
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — cryo recovery not granted.');
+      return;
+    }
+
+    const dedupeKey = `trn_fat_${career.id}_${playerId}_${res.rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) return;
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const updatedWk: PlayerWorkloadState = {
+      ...currentWk,
+      fatigue: Math.max(0, currentWk.fatigue - 30),
+      fitness: Math.min(100, currentWk.fitness + 8),
+    };
+
+    onUpdateCareer({
+      ...career,
+      playerWorkloads: { ...playerWorkloads, [playerId]: updatedWk },
+      lastPlayedAt: Date.now(),
+    });
+    notify(`Free Cryo Recovery complete for ${playerName}!`);
+  };
+
+  // Optional Rewarded Ad: Fast Injury Rehab -4 Days (INJURY_RECOVERY_SPEEDUP)
+  const handleWatchAdInjurySpeedup = async (playerId: string, playerName: string) => {
+    const currentWk = playerWorkloads[playerId];
+    if (!currentWk?.isInjured || adActionBusy) return;
+    setAdActionBusy(true);
+    const res = await LevelPlayService.showRewardedAd('INJURY_RECOVERY_SPEEDUP');
+    setAdActionBusy(false);
+
+    if (!res.completed || !res.rewardToken) {
+      notify(res.reason || 'Ad not completed — rehab speedup not granted.');
+      return;
+    }
+
+    const dedupeKey = `trn_inj_${career.id}_${playerId}_${res.rewardToken}`;
+    if (DbPersistence.hasProcessedEvent(dedupeKey)) return;
+    DbPersistence.markEventProcessed(dedupeKey);
+
+    const remDays = Math.max(0, (currentWk.injuryDetails?.recoveryDaysRemaining || 4) - 4);
+    const updatedWk: PlayerWorkloadState =
+      remDays === 0
+        ? {
+            ...currentWk,
+            isInjured: false,
+            injuryDetails: undefined,
+            fitness: Math.min(100, Math.max(82, currentWk.fitness + 12)),
+            fatigue: 5,
+          }
+        : {
+            ...currentWk,
+            injuryDetails: {
+              ...currentWk.injuryDetails!,
+              recoveryDaysRemaining: remDays,
+            },
+          };
+
+    onUpdateCareer({
+      ...career,
+      playerWorkloads: { ...playerWorkloads, [playerId]: updatedWk },
+      lastPlayedAt: Date.now(),
+    });
+    notify(
+      remDays === 0
+        ? `${playerName} cleared fit after accelerated rehab!`
+        : `${playerName} rehab accelerated (-4 days, ${remDays}d left).`
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#080E1A] text-slate-100 flex flex-col font-sans pb-16">
       {/* Toast Notification */}
@@ -544,6 +666,24 @@ export const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                   </span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Optional Sponsored Squad Conditioning Boost (TRAINING_BOOST) */}
+            <div className="p-3.5 rounded-2xl bg-[#101B33] border border-amber-500/30 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-black text-white block">Sponsored conditioning Camp (Optional)</span>
+                <span className="text-[11px] text-slate-400">
+                  Watch Ad for +4% fitness & -10% fatigue across healthy roster
+                </span>
+              </div>
+              <button
+                onClick={handleWatchAdTrainingBoost}
+                disabled={adActionBusy}
+                className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black text-[11px] uppercase flex items-center space-x-1.5 shrink-0"
+              >
+                <Video className="w-3.5 h-3.5" />
+                <span>{adActionBusy ? 'Loading...' : 'Watch Ad Boost'}</span>
               </button>
             </div>
           </div>
@@ -897,7 +1037,7 @@ export const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     </div>
 
                     {/* Treatment buttons */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-800">
                       <button
                         onClick={() => handleApplyRecovery(player.id, 'FULL_REST')}
                         className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-bold transition-all text-center"
@@ -926,6 +1066,26 @@ export const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                         }`}
                       >
                         Surgery (Heal Now, ₹1.5 Cr)
+                      </button>
+                      <button
+                        onClick={() => handleWatchAdFatigueRecovery(player.id, player.name)}
+                        disabled={adActionBusy}
+                        className="py-1.5 px-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center space-x-1"
+                      >
+                        <Video className="w-3 h-3" />
+                        <span>Ad Cryo (Free)</span>
+                      </button>
+                      <button
+                        onClick={() => handleWatchAdInjurySpeedup(player.id, player.name)}
+                        disabled={!wk.isInjured || adActionBusy}
+                        className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center space-x-1 ${
+                          wk.isInjured
+                            ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
+                        }`}
+                      >
+                        <Video className="w-3 h-3" />
+                        <span>Ad Rehab (-4d)</span>
                       </button>
                     </div>
                   </div>

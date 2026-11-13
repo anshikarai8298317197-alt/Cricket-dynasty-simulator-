@@ -25,6 +25,7 @@ import {
   LiveTacticsInput,
 } from '../services/cricketMatchEngine';
 import { DbPersistence } from '../services/dbPersistence';
+import { LevelPlayService } from '../services/levelPlayService';
 import {
   Play,
   Pause,
@@ -42,6 +43,8 @@ import {
   Check,
   X,
   Sparkles,
+  Video,
+  AlertTriangle,
 } from 'lucide-react';
 import { BattingAggressionLevel, FieldingPresetType } from '../types/tactics';
 
@@ -160,6 +163,12 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
   const [impactUsed, setImpactUsed] = useState<boolean>(() => Boolean(matchedSaved?.impactUsed));
   const [selectedSubPlayer, setSelectedSubPlayer] = useState<string | null>(() => matchedSaved?.selectedSubPlayer || null);
 
+  // User-Choice-Only LBW DRS Review Modal State
+  const [pendingLbwBall, setPendingLbwBall] = useState<BallEvent | null>(null);
+  const [lbwAdBusy, setLbwAdBusy] = useState(false);
+  const [lbwShowBatterPicker, setLbwShowBatterPicker] = useState(false);
+  const [lbwFeedback, setLbwFeedback] = useState<{ type: 'overturned' | 'upheld' | 'error'; text: string } | null>(null);
+
   const persistLiveMatchSnapshot = (latestBall: BallEvent | null = currentBall) => {
     if (matchResult || session.status === 'COMPLETED') {
       DbPersistence.clearLiveMatch();
@@ -204,9 +213,9 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
 
   // Tick: Execute Delivery-by-Delivery Simulation
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || pendingLbwBall) return;
 
-    if (session.status === 'COMPLETED') {
+    if (session.status === 'COMPLETED' && !pendingLbwBall) {
       const timer = setTimeout(() => {
         onMatchComplete(session.completedResultDetails!);
       }, 1200);
@@ -233,7 +242,18 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
         setCurrentBall(ball);
         setMatchStatus(session.status);
 
-        // Authoritative Auto-save after EVERY completed delivery (including RNG seedState & full state)
+        // User-Choice-Only LBW DRS pause before finalizing dismissal/match completion
+        if (ball.isWicket && ball.dismissal?.kind === 'LBW') {
+          setIsPlaying(false);
+          setLbwFeedback(null);
+          setLbwShowBatterPicker(false);
+          setPendingLbwBall(ball);
+          persistLiveMatchSnapshot(ball);
+          AudioManager.playWicket();
+          return;
+        }
+
+        // Authoritative Auto-save after EVERY completed delivery
         if (session.status === 'COMPLETED') {
           DbPersistence.clearLiveMatch();
         } else {
@@ -257,6 +277,7 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
     return () => clearInterval(interval);
   }, [
     isPlaying,
+    pendingLbwBall,
     playbackSpeed,
     liveAggression,
     liveFielding,
@@ -267,6 +288,66 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
     selectedSubPlayer,
     onMatchComplete,
   ]);
+
+  const handleCloseLbwAndContinue = (resumePlay: boolean) => {
+    const wasOverturned = pendingLbwBall?.drsReview?.resolvedOutcome === 'OVERTURNED_NOT_OUT';
+    setPendingLbwBall(null);
+    setLbwFeedback(null);
+    setLbwShowBatterPicker(false);
+    setMatchStatus(session.status);
+
+    if (session.status === 'COMPLETED' && session.completedResultDetails) {
+      DbPersistence.clearLiveMatch();
+      setIsPlaying(false);
+      onMatchComplete(session.completedResultDetails);
+      return;
+    }
+
+    persistLiveMatchSnapshot(currentBall);
+    if (resumePlay || wasOverturned) {
+      setIsPlaying(true);
+    }
+  };
+
+  const handleWatchAdAndReviewLbw = async () => {
+    if (!pendingLbwBall || lbwAdBusy || pendingLbwBall.drsReview?.resolvedOutcome) return;
+    const activeInn = session.currentInningsNumber === 1 ? session.innings1 : session.innings2 || session.innings1;
+    if ((activeInn.drsReviewsRemaining ?? 2) <= 0) {
+      setLbwFeedback({ type: 'error', text: '0 team DRS reviews remaining this innings.' });
+      return;
+    }
+
+    setLbwAdBusy(true);
+    setLbwFeedback(null);
+    const adRes = await LevelPlayService.showRewardedAd('LBW_DRS_REVIEW');
+    setLbwAdBusy(false);
+
+    if (!adRes.completed || !adRes.rewardToken) {
+      // Failed / unavailable / cancelled -> keep LBW intact & consume 0 reviews
+      setLbwFeedback({
+        type: 'error',
+        text: adRes.reason || 'Ad not completed — LBW decision unchanged and 0 reviews spent.',
+      });
+      return;
+    }
+
+    const reviewOutcome = session.resolveLbwDrsReview(pendingLbwBall);
+    setCurrentBall({ ...pendingLbwBall });
+    setMatchStatus(session.status);
+    persistLiveMatchSnapshot(pendingLbwBall);
+
+    if (reviewOutcome.overturned) {
+      setLbwFeedback({
+        type: 'overturned',
+        text: `DRS OVERTURNS! ${pendingLbwBall.strikerName} survives (NOT OUT). Reviews left: ${reviewOutcome.reviewsRemaining}/2`,
+      });
+    } else {
+      setLbwFeedback({
+        type: 'upheld',
+        text: `DRS UPHELD: Three Reds! ${pendingLbwBall.strikerName} remains OUT. Reviews left: ${reviewOutcome.reviewsRemaining}/2`,
+      });
+    }
+  };
 
   // Audio mute toggle
   const toggleAudio = () => {
@@ -1173,6 +1254,145 @@ export const LiveMatchScreen: React.FC<LiveMatchScreenProps> = ({
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* User-Choice-Only LBW DRS Review Modal (Part 9) */}
+      {pendingLbwBall && (
+        <div className="fixed inset-0 z-50 bg-black/88 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#0F1A30] border-2 border-red-500/70 rounded-3xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-red-400 block">
+                    Umpire Decision: OUT (LBW)
+                  </span>
+                  <h3 className="text-sm font-black text-white">
+                    {pendingLbwBall.strikerName} — {pendingLbwBall.strikerRuns}({pendingLbwBall.strikerBalls})
+                  </h3>
+                </div>
+              </div>
+              <span className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 font-mono font-bold text-amber-400 text-[10px]">
+                DRS: {currentInningsState.drsReviewsRemaining ?? 2}/2
+              </span>
+            </div>
+
+            {/* Ball Tracking Simulation Readout */}
+            <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">Ball Tracking Confidence</span>
+                <span className="font-mono font-black text-amber-300">
+                  {pendingLbwBall.drsReview?.reviewSuccessPct ?? 28}% Overturn Chance
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                <div className="bg-slate-900 rounded-lg p-1.5 border border-slate-800">
+                  <span className="text-slate-500 block text-[9px]">PITCHING</span>
+                  <span className="font-bold text-slate-200">
+                    {pendingLbwBall.drsReview?.resolvedOutcome
+                      ? (pendingLbwBall.drsReview.pitching || 'IN_LINE').replace('_', ' ')
+                      : 'Review to Reveal'}
+                  </span>
+                </div>
+                <div className="bg-slate-900 rounded-lg p-1.5 border border-slate-800">
+                  <span className="text-slate-500 block text-[9px]">IMPACT</span>
+                  <span className="font-bold text-slate-200">
+                    {pendingLbwBall.drsReview?.resolvedOutcome
+                      ? (pendingLbwBall.drsReview.impact || 'IN_LINE').replace('_', ' ')
+                      : 'Hawk-Eye Lock'}
+                  </span>
+                </div>
+                <div className="bg-slate-900 rounded-lg p-1.5 border border-slate-800">
+                  <span className="text-slate-500 block text-[9px]">WICKETS</span>
+                  <span className="font-bold text-slate-200">
+                    {pendingLbwBall.drsReview?.resolvedOutcome
+                      ? (pendingLbwBall.drsReview.wickets || 'HITTING').replace('_', ' ')
+                      : 'Pending DRS'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {lbwFeedback && (
+              <div
+                className={`p-2.5 rounded-xl border text-[11px] font-bold ${
+                  lbwFeedback.type === 'overturned'
+                    ? 'bg-emerald-950/70 border-emerald-500/60 text-emerald-300'
+                    : lbwFeedback.type === 'upheld'
+                    ? 'bg-red-950/60 border-red-500/50 text-red-200'
+                    : 'bg-amber-950/60 border-amber-500/40 text-amber-200'
+                }`}
+              >
+                {lbwFeedback.text}
+              </div>
+            )}
+
+            {/* Next Batsman Selector (Zero Ads) */}
+            {lbwShowBatterPicker && !pendingLbwBall.drsReview?.resolvedOutcome?.includes('OVERTURNED') && (
+              <div className="p-2.5 rounded-2xl bg-slate-900 border border-slate-700 space-y-1.5 max-h-40 overflow-y-auto">
+                <span className="text-[10px] font-black text-amber-400 uppercase block">
+                  Choose Incoming Batter (Free • No Ad)
+                </span>
+                {session.getAvailableBattersForNextSlot().map(b => (
+                  <button
+                    key={b.playerId}
+                    onClick={() => {
+                      session.selectNextBatsmanAfterWicket(b.playerId);
+                      handleCloseLbwAndContinue(true);
+                    }}
+                    className="w-full text-left px-2.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 flex items-center justify-between text-[11px] font-bold text-white"
+                  >
+                    <span>
+                      #{b.battingPosition} {b.playerName}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-amber-400" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* User Choices */}
+            <div className="space-y-2 pt-1">
+              {!pendingLbwBall.drsReview?.resolvedOutcome && (
+                <button
+                  onClick={handleWatchAdAndReviewLbw}
+                  disabled={lbwAdBusy || (currentInningsState.drsReviewsRemaining ?? 2) <= 0}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-45 text-slate-950 font-black uppercase tracking-wider flex items-center justify-center space-x-2 shadow-lg"
+                >
+                  <Video className="w-4 h-4" />
+                  <span>
+                    {(currentInningsState.drsReviewsRemaining ?? 2) <= 0
+                      ? 'No Reviews Left (0/2)'
+                      : lbwAdBusy
+                      ? 'Loading Rewarded Ad...'
+                      : 'Watch Ad & Take DRS Review'}
+                  </span>
+                </button>
+              )}
+
+              {!lbwFeedback?.type.includes('overturned') &&
+                session.status !== 'COMPLETED' &&
+                session.status !== 'INNINGS_BREAK' &&
+                session.getAvailableBattersForNextSlot().length > 1 && (
+                  <button
+                    onClick={() => setLbwShowBatterPicker(v => !v)}
+                    className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-bold uppercase tracking-wider"
+                  >
+                    {lbwShowBatterPicker ? 'Hide Batter List' : 'Select Next Batsman'}
+                  </button>
+                )}
+
+              <button
+                onClick={() => handleCloseLbwAndContinue(true)}
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-wider"
+              >
+                Continue Match
+              </button>
+            </div>
           </div>
         </div>
       )}

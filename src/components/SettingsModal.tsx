@@ -2,7 +2,20 @@
  * WICKET DYNASTY - Game Settings & Audio Mixers (SCR_34 / SCR_35)
  */
 import React, { useState } from 'react';
-import { X, Volume2, VolumeX, ShieldCheck, BatteryCharging, RotateCcw, Info } from 'lucide-react';
+import { X, Volume2, ShieldCheck, RotateCcw } from 'lucide-react';
+import { LevelPlayService } from '../services/levelPlayService';
+
+const SETTINGS_LS_KEY = 'wicket_dynasty_settings_v1';
+
+function readPersistedBatterySaver(): boolean {
+  try {
+    const raw = localStorage.getItem(SETTINGS_LS_KEY);
+    if (!raw) return false;
+    return Boolean(JSON.parse(raw)?.batterySaver);
+  } catch {
+    return false;
+  }
+}
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,10 +35,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [crowdVolume, setCrowdVolume] = useState(70);
   const [sfxVolume, setSfxVolume] = useState(85);
   const [isMuted, setIsMuted] = useState(false);
-  const [batterySaver, setBatterySaver] = useState(false);
+  const [batterySaver, setBatterySaver] = useState<boolean>(() => readPersistedBatterySaver());
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   if (!isOpen) return null;
+
+  const adConfig = LevelPlayService.getConfigStatus();
+
+  const toggleBatterySaver = () => {
+    const next = !batterySaver;
+    setBatterySaver(next);
+    try {
+      const existing = JSON.parse(localStorage.getItem(SETTINGS_LS_KEY) || '{}');
+      localStorage.setItem(SETTINGS_LS_KEY, JSON.stringify({ ...existing, batterySaver: next }));
+    } catch {}
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
@@ -139,10 +163,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-white font-semibold block">Battery Saver Mode</span>
-                <span className="text-[10px] text-slate-400">Limits canvas animations to conserve battery</span>
+                <span className="text-[10px] text-slate-400">Uses lightweight 3-step trajectory updates to save battery</span>
               </div>
               <button
-                onClick={() => setBatterySaver(!batterySaver)}
+                onClick={toggleBatterySaver}
                 className={`w-12 h-6 rounded-full transition-colors relative ${
                   batterySaver ? 'bg-[#F59E0B]' : 'bg-[#1E2D4A]'
                 }`}
@@ -159,7 +183,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* Diagnostics & Audit */}
           <div className="p-3.5 rounded-xl bg-[#121E36] border border-[#1E2D4A] space-y-2">
             <span className="font-bold text-white uppercase tracking-wider text-[11px] block">
-              Data Diagnostics
+              Data & Ad Mediation Diagnostics
             </span>
             <button
               onClick={() => {
@@ -174,6 +198,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
               <span className="font-mono text-[10px]">100% Valid</span>
             </button>
+
+            <div className="p-2.5 rounded-lg bg-[#0C1425] border border-[#1E2D4A] space-y-1 text-[10px]">
+              <div className="flex justify-between text-slate-300">
+                <span>Unity Android Game ID:</span>
+                <span className="font-mono text-amber-400 font-bold">{adConfig.unityGameId}</span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Formats (Zero Banners):</span>
+                <span className="font-mono text-emerald-400">Rewarded + Interstitial</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Native LevelPlay Bridge:</span>
+                <span className="font-mono">
+                  {adConfig.hasNativeBridge ? (adConfig.isInitialized ? 'Initialized' : 'Bridge Ready') : 'Web Preview'}
+                </span>
+              </div>
+              {adConfig.missingFields.length > 0 && (
+                <p className="text-[9px] text-amber-300/90 pt-1">
+                  Missing native keys: {adConfig.missingFields.join(', ')}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Reset Save Data */}

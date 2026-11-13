@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">WICKET DYNASTY</string>
+    <!-- Supplied Unity Ads Configuration -->
+    <string name="unity_game_id" translatable="false">6224523</string>
+    <string name="unity_rewarded_placement" translatable="false">Rewarded_Android</string>
+    <string name="unity_interstitial_placement" translatable="false">Interstitial_Android</string>
+    <!-- Required Unity LevelPlay Mediation Keys (must be configured from LevelPlay Dashboard; do not substitute Game ID or placement names) -->
+    <string name="levelplay_app_key" translatable="false"></string>
+    <string name="levelplay_rewarded_ad_unit_id" translatable="false"></string>
+    <string name="levelplay_interstitial_ad_unit_id" translatable="false"></string>
 </resources>

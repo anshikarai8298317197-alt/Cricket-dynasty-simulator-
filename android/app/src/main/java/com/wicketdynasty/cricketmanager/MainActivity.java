@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+    private LevelPlayBridge levelPlayBridge;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -44,6 +45,10 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+
+        levelPlayBridge = new LevelPlayBridge(this, webView);
+        webView.addJavascriptInterface(levelPlayBridge, "WicketDynastyAds");
+        levelPlayBridge.initializeAds();
 
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
